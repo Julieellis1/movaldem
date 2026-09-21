@@ -1,6 +1,6 @@
 import type { DB } from "@/db/client";
 import { notifications } from "@/db/schema";
-import { and, eq, lte, asc, sql } from "drizzle-orm";
+import { and, eq, lte, asc } from "drizzle-orm";
 import { renderVerifyEmail } from "@/modules/platform/notifications/templates/verify-email";
 import { sendEmail } from "@/modules/platform/notifications/email.adapter";
 
@@ -20,7 +20,7 @@ export async function processNotificationQueue(
     .where(and(eq(notifications.status, "queued"), lte(notifications.created_at, new Date())))
     .orderBy(asc(notifications.created_at))
     .limit(max)
-    .for("update skip locked"); // optimistic leasing — duplicate cron runs can't double-send
+    .for("update", { skipLocked: true }); // optimistic leasing — duplicate cron runs can't double-send
 
   let sent = 0;
   for (const row of batch) {
