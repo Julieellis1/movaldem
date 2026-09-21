@@ -1,26 +1,64 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --color-background: #12131a;
+  --color-surface-base: #0d0d11;
+  --color-surface-card: #13141b;
+  --color-surface-elevated: #1b1d27;
+  --color-surface-highlight: #242735;
+  --color-surface-container-lowest: #0d0e15;
+  --color-surface-container-low: #1a1b22;
+  --color-surface-container: #1e1f26;
+  --color-surface-container-high: #292931;
+  --color-surface-container-highest: #34343c;
+  --color-on-surface: #e3e1ec;
+  --color-on-surface-variant: #cbc3d7;
+  --color-primary: #d0bcff;
+  --color-primary-container: #a078ff;
+  --color-on-primary-container: #340080;
+  --color-secondary: #ddb7ff;
+  --color-secondary-container: #6f00be;
+  --color-tertiary: #ffb95f;
+  --color-tertiary-container: #ca8100;
+  --color-on-tertiary: #472a00;
+  --color-tertiary-fixed: #ffddb8;
+  --color-error: #ffb4ab;
+  --color-outline: #958ea0;
+  --color-outline-variant: #494454;
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #9ca3af;
+  --color-text-muted: #6b7280;
+  --color-border-subtle: rgba(255, 255, 255, 0.08);
+  --color-border-glow: rgba(139, 92, 246, 0.35);
+  --color-gold-glow: rgba(245, 158, 11, 0.25);
+
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-display: var(--font-jakarta), system-ui, sans-serif;
+
+  --text-display: 56px;
+  --text-display--line-height: 64px;
+  --text-headline-lg: 40px;
+  --text-headline-lg--line-height: 48px;
+  --text-headline-md: 28px;
+  --text-headline-md--line-height: 36px;
+  --text-headline-sm: 20px;
+  --text-headline-sm--line-height: 28px;
+  --text-title-md: 18px;
+  --text-title-md--line-height: 24px;
+  --text-body-lg: 18px;
+  --text-body-lg--line-height: 28px;
+  --text-body-md: 15px;
+  --text-body-md--line-height: 24px;
+  --text-body-sm: 13px;
+  --text-body-sm--line-height: 20px;
+  --text-label-lg: 14px;
+  --text-label-sm: 11px;
+
+  --radius: 1rem;
+  --radius-md: 1.5rem;
+  --radius-lg: 2rem;
+  --radius-xl: 3rem;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
+:root { color-scheme: dark; }
+html, body { background: var(--color-surface-base); color: var(--color-on-surface); }
