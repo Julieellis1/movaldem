@@ -6,7 +6,15 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "playwright test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:seed": "tsx drizzle/seeders/index.ts",
+    "db:create-superadmin": "tsx scripts/create-superadmin.ts"
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "^1.7.5",
@@ -44,7 +52,8 @@
     "prettier": "^3.9.8",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.1",
+    "tsx": "^4.19.0"
   },
   "packageManager": "pnpm@12.3.4"
 }

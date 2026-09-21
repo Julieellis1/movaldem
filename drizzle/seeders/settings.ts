@@ -1,0 +1,15 @@
+export const SETTINGS_SEED: { key: string; value: unknown; is_secret: boolean }[] = [
+  { key: "church.name", value: "Mountain of Victory at the Last Day Evangelical Ministry", is_secret: false },
+  { key: "content.require_review", value: false, is_secret: false },
+  { key: "content.items_per_page", value: 12, is_secret: false },
+  { key: "quiz.require_verified_email", value: true, is_secret: false },
+  { key: "quiz.grace_seconds", value: 5, is_secret: false },
+  { key: "leaderboard.attempt_counting", value: "best_per_quiz", is_secret: false },
+  { key: "leaderboard.min_attempts", value: 1, is_secret: false },
+  { key: "leaderboard.default_display", value: "abbreviated", is_secret: false },
+  { key: "leaderboard.force_abbreviated", value: false, is_secret: false },
+  { key: "leaderboard.page_size", value: 50, is_secret: false },
+  { key: "giving.min_amount", value: 10000, is_secret: false },
+  { key: "giving.abandon_after_minutes", value: 60, is_secret: false },
+  { key: "audit.retention_months", value: 24, is_secret: false },
+];
