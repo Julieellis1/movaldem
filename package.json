@@ -1,0 +1,50 @@
+{
+  "name": "movaldem",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@better-auth/drizzle-adapter": "^1.7.5",
+    "@neondatabase/serverless": "^1.1.0",
+    "@node-rs/argon2": "^2.2.1",
+    "@upstash/ratelimit": "^2.1.0",
+    "@upstash/redis": "^1.38.4",
+    "better-auth": "^1.7.5",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "drizzle-orm": "^0.45.2",
+    "material-symbols": "^0.47.4",
+    "next": "15.5.25",
+    "nodemailer": "^10.0.10",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-email": "^6.9.5",
+    "sonner": "^2.0.8",
+    "tailwind-merge": "^3.7.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.7",
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/nodemailer": "^8.0.2",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitest/ui": "^5.0.1",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^9",
+    "eslint-config-next": "15.5.25",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.8",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^5.0.1"
+  },
+  "packageManager": "pnpm@12.3.4"
+}

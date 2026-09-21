@@ -447,13 +447,16 @@ describe("db", () => {
 
 ```ts
 // src/db/client.ts
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
+import { drizzle } from "drizzle-orm/neon-http";
+import { neon } from "@neondatabase/serverless";
 import { env } from "@/lib/env";
 import * as schema from "./schema";
 
-const pool = new Pool({ connectionString: env().DATABASE_URL });
-export const db = drizzle(pool, { schema });
+// Neon HTTP driver: right choice on Vercel serverless (no persistent
+// connection pool to exhaust); supports transactions via a single batched
+// request.
+const sql = neon(env().DATABASE_URL);
+export const db = drizzle(sql, { schema });
 export type DB = typeof db;
 ```
 
@@ -472,7 +475,7 @@ export default defineConfig({
 });
 ```
 
-Add `@types/pg` + `pg` to deps: `pnpm add pg && pnpm add -D @types/pg`.
+Add `pg` only if you later switch off the HTTP driver; the neon-http client needs no extra dependency.
 
 - [ ] **Step 4: Run tests** — Run: `pnpm vitest run tests/integration/db.test.ts` (requires a reachable `DATABASE_URL`) → PASS.
 
@@ -494,8 +497,11 @@ git commit -m "feat: drizzle + neon database client (Phase 1 Task 4)"
 - Produces: Drizzle table objects `users`, `roles`, `permissions`, `rolePermissions`, `userRoles`, `authTokens`, `sessions`, `settings`, `auditLogs`, `notifications`, plus `pgEnum`s. better-auth maps onto `users`/`sessions`/`authTokens` (Task 9).
 
 **Documented deviations from PRD 09** (record in `docs/ASSUMPTIONS.md`):
-- `users.image` (nullable) and `users.identifier`-style columns are added where better-auth requires them; `avatar_media_id` is deferred to Phase 2.
-- `sessions` gains `createdAt`/`updatedAt`; `authTokens` gains `identifier` — required by better-auth's core models.
+- **Passwords live in `account`, not `users.password_hash`** — better-auth stores credential hashes in the `account` table (`provider_id = "credential"`), so `users` has no `password_hash` column. The argon2id hash function is wired into better-auth (Task 9), satisfying SEC-01.
+- The `account` and `verification` tables are better-auth-owned (email-verification and password-reset tokens). `auth_tokens` is ours and holds staff-invite tokens only.
+- `users.image` (better-auth core field) is added; `avatar_media_id` is deferred to Phase 2.
+- `sessions` gains `created_at`/`updated_at` (better-auth core fields).
+- `users.consent_at` is nullable: consent is enforced by the registration Zod schema (PRV-02) and written immediately after sign-up, not at row creation.
 - `users.totp_secret_enc` is **absent** (2FA eliminated, spec A1).
 
 - [ ] **Step 1: Write the failing test**
@@ -510,7 +516,7 @@ import { sql } from "drizzle-orm";
 describe("schema", () => {
   it("all phase-1 tables exist", async () => {
     const names = [
-      "users", "roles", "permissions", "role_permissions", "user_roles",
+      "users", "account", "verification", "roles", "permissions", "role_permissions", "user_roles",
       "auth_tokens", "sessions", "settings", "audit_logs", "notifications",
     ];
     const res = await db.execute<{ table_name: string }>`
@@ -524,6 +530,13 @@ describe("schema", () => {
     const res = await db.execute`
       select column_name from information_schema.columns
       where table_name = 'users' and column_name = 'totp_secret_enc'`;
+    expect(res.rows.length).toBe(0);
+  });
+
+  it("users has no password_hash (credentials live in account)", async () => {
+    const res = await db.execute`
+      select column_name from information_schema.columns
+      where table_name = 'users' and column_name = 'password_hash'`;
     expect(res.rows.length).toBe(0);
   });
 
@@ -556,14 +569,15 @@ export const users = pgTable("users", {
   email: text("email").notNull(),
   image: text("image"),
   phone: text("phone"),
-  password_hash: text("password_hash").notNull(),
+  // No password_hash: better-auth stores credentials in the `account` table
+  // (providerId = "credential") — see auth.config.ts in Task 9.
   email_verified_at: timestamp("email_verified_at", { withTimezone: true }),
   status: userStatus("status").notNull().default("active"),
   church: text("church"),
   age_range: text("age_range"),
   gender: text("gender"),
   leaderboard_display: leaderboardDisplay("leaderboard_display").notNull().default("abbreviated"),
-  consent_at: timestamp("consent_at", { withTimezone: true }).notNull(),
+  consent_at: timestamp("consent_at", { withTimezone: true }),
   last_login_at: timestamp("last_login_at", { withTimezone: true }),
   created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -571,6 +585,37 @@ export const users = pgTable("users", {
 }, (t) => ({
   emailIdx: uniqueIndex("users_email_unique").on(sql`lower(${t.email})`),
   statusIdx: index("users_status_idx").on(t.status),
+}));
+
+// better-auth-owned: holds credential password hashes (providerId = "credential").
+export const accounts = pgTable("account", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  user_id: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  account_id: text("account_id").notNull(),
+  provider_id: text("provider_id").notNull(),
+  password: text("password"),
+  access_token: text("access_token"),
+  refresh_token: text("refresh_token"),
+  access_token_expires_at: timestamp("access_token_expires_at", { withTimezone: true }),
+  refresh_token_expires_at: timestamp("refresh_token_expires_at", { withTimezone: true }),
+  scope: text("scope"),
+  id_token: text("id_token"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  userIdx: index("account_user_idx").on(t.user_id),
+  providerIdx: uniqueIndex("account_provider_account_idx").on(t.provider_id, t.account_id),
+}));
+
+// better-auth-owned: email-verification and password-reset tokens.
+export const verifications = pgTable("verification", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  identifier: text("identifier").notNull(),
+  value: text("value").notNull(),
+  expires_at: timestamp("expires_at", { withTimezone: true }).notNull(),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  identifierIdx: index("verification_identifier_idx").on(t.identifier),
 }));
 
 export const roles = pgTable("roles", {
@@ -603,10 +648,12 @@ export const userRoles = pgTable("user_roles", {
 }));
 
 export const authTokens = pgTable("auth_tokens", {
+  // Holds staff-invite tokens only. Email-verification and password-reset
+  // tokens are managed by better-auth in the `verification` table above.
   id: uuid("id").primaryKey().defaultRandom(),
   user_id: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
   identifier: text("identifier").notNull(),
-  type: authTokenType("type").notNull(),
+  type: authTokenType("type").notNull(), // always "staff_invite" in practice
   token_hash: text("token_hash").notNull(),
   expires_at: timestamp("expires_at", { withTimezone: true }).notNull(),
   used_at: timestamp("used_at", { withTimezone: true }),
@@ -1065,11 +1112,10 @@ File boundaries are clean: `roles.ts` exports `ROLE_KEYS` + `RoleKey` and import
 
 ```ts
 // scripts/create-superadmin.ts
+import { auth } from "@/modules/auth/auth.config";
 import { db } from "@/db/client";
 import { users, userRoles, roles } from "@/db/schema";
-import { hashPassword } from "@/modules/auth/password";
 import { eq } from "drizzle-orm";
-import { env } from "@/lib/env";
 
 async function main() {
   const email = process.env.SUPERADMIN_EMAIL;
@@ -1078,12 +1124,15 @@ async function main() {
   if (!email || !password) throw new Error("Set SUPERADMIN_EMAIL and SUPERADMIN_PASSWORD");
   const existing = await db.select().from(users).where(eq(users.email, email.toLowerCase()));
   if (existing.length) { console.log("Super admin already exists"); return; }
-  const [user] = await db.insert(users).values({
-    full_name: name, email: email.toLowerCase(), password_hash: await hashPassword(password),
-    email_verified_at: new Date(), consent_at: new Date(), status: "active",
-  }).returning();
+  // Create through better-auth so the credential hash lands in `account` correctly.
+  const res = await auth.api.signUpEmail({
+    body: { email: email.toLowerCase(), password, name },
+  });
+  await db.update(users)
+    .set({ email_verified_at: new Date(), status: "active" })
+    .where(eq(users.id, res.user.id));
   const [superRole] = await db.select().from(roles).where(eq(roles.key, "super_admin"));
-  await db.insert(userRoles).values({ user_id: user.id, role_id: superRole.id });
+  await db.insert(userRoles).values({ user_id: res.user.id, role_id: superRole.id });
   console.log(`Created super admin ${email}`);
 }
 main().then(() => process.exit(0)).catch((e) => { console.error(e); process.exit(1); });
@@ -1150,6 +1199,8 @@ describe("password", () => {
 
 - [ ] **Step 3: Implement (argon2id, SEC-01)**
 
+This module is consumed by `auth.config.ts` (Task 9) via `emailAndPassword.password: { hash, verify }` — better-auth then stores the resulting hash in the `account` table. `AuthService` never hashes passwords itself.
+
 ```ts
 // src/modules/auth/password.ts
 import { hash, verify } from "@node-rs/argon2";
@@ -1207,6 +1258,8 @@ import { db } from "@/db/client";
 import * as schema from "@/db/schema";
 import { env } from "@/lib/env";
 import { hashIp } from "@/lib/ip-hash";
+import { hashPassword, verifyPassword } from "./password";
+import { enqueueNotification } from "@/modules/platform/notifications/notifications.service";
 
 export const auth = betterAuth({
   baseURL: env().APP_URL,
@@ -1216,6 +1269,32 @@ export const auth = betterAuth({
     enabled: true,
     minPasswordLength: 8,
     maxPasswordLength: 128,
+    // argon2id instead of the default scrypt (SEC-01).
+    password: { hash: hashPassword, verify: verifyPassword },
+    // better-auth generates and validates the reset token; we just deliver it.
+    sendResetPassword: async ({ user, url }) => {
+      void db.transaction((tx) =>
+        enqueueNotification(tx, {
+          type: "password_reset",
+          recipient: user.email,
+          payload: { url, name: user.name },
+        }),
+      );
+    },
+    revokeSessionsOnPasswordReset: true, // SEC-02
+  },
+  emailVerification: {
+    // better-auth generates and validates the token; we just deliver it.
+    sendVerificationEmail: async ({ user, url }) => {
+      void db.transaction((tx) =>
+        enqueueNotification(tx, {
+          type: "verify_email",
+          recipient: user.email,
+          payload: { url, name: user.name },
+        }),
+      );
+    },
+    autoSignInAfterVerification: true,
   },
   user: {
     modelName: "users",
@@ -1246,18 +1325,11 @@ export const auth = betterAuth({
       createdAt: "created_at",
       updatedAt: "updated_at",
     },
-    expiresIn: 60 * 60 * 24 * 7, // 7 days; staff session policy can tighten later
-    updateAge: 60 * 60 * 24,     // rotate session once per day (SEC-02)
+    expiresIn: 60 * 60 * 24 * 7, // 7 days
+    updateAge: 60 * 60 * 24,     // rotate the session once per day (SEC-02)
   },
-  // better-auth's `verification` model maps onto our auth_tokens:
-  verification: {
-    modelName: "auth_tokens",
-    fields: {
-      value: "token_hash",
-      expiresAt: "expires_at",
-      createdAt: "created_at",
-    },
-  },
+  // No `verification` mapping: better-auth owns the `verification` table for
+  // email-verify and password-reset tokens. Our `auth_tokens` holds staff invites.
   databaseHooks: {
     session: {
       create: {
@@ -1317,8 +1389,7 @@ describe("rbac", () => {
   it("unions permissions across a user's roles", async () => {
     await seed(db);
     const [u] = await db.insert(users).values({
-      full_name: "Test", email: "rbac@test.org", password_hash: "x",
-      consent_at: new Date(),
+      full_name: "Test", email: "rbac@test.org", consent_at: new Date(),
     }).returning();
     const [cm] = await db.select().from(roles).where(eq(roles.key, "content_manager"));
     const [sa] = await db.select().from(roles).where(eq(roles.key, "super_admin"));
@@ -1329,7 +1400,7 @@ describe("rbac", () => {
   });
   it("denies members admin actions", async () => {
     const [u2] = await db.insert(users).values({
-      full_name: "M", email: "m@test.org", password_hash: "x", consent_at: new Date(),
+      full_name: "M", email: "m@test.org", consent_at: new Date(),
     }).returning();
     const perms = await loadPermissions(u2.id, db);
     expect(can(perms, "sermons.create")).toBe(false);
@@ -1831,21 +1902,23 @@ git commit -m "feat: idempotent notification queue worker behind Vercel Cron (RE
 // tests/integration/auth-register.test.ts
 import { describe, it, expect } from "vitest";
 import { db } from "@/db/client";
-import { users } from "@/db/schema";
+import { users, notifications } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { registerMember, verifyEmail } from "@/modules/auth/auth.service";
+import { registerMember } from "@/modules/auth/auth.service";
 
 describe("registration", () => {
-  it("creates a member with consent and a hashed password", async () => {
+  it("creates a member with consent and queues a verification email", async () => {
     const { user } = await registerMember({
       full_name: "Grace Okafor", email: "grace@test.org", phone: "+2348012345678",
       password: "strong-pass-1", consent: true,
     }, { ip: "102.89.1.1" });
     expect(user.email).toBe("grace@test.org");
-    expect(user.password_hash).not.toBe("strong-pass-1");
-    expect(user.consent_at).toBeInstanceOf(Date);
     const [row] = await db.select().from(users).where(eq(users.id, user.id));
     expect(row.status).toBe("active");
+    expect(row.consent_at).toBeInstanceOf(Date);
+    const mails = await db.select().from(notifications)
+      .where(eq(notifications.recipient, "grace@test.org"));
+    expect(mails.some((m) => m.type === "verify_email" && m.status === "queued")).toBe(true);
   });
   it("requires the consent checkbox", async () => {
     await expect(registerMember({
@@ -1856,15 +1929,6 @@ describe("registration", () => {
     await expect(registerMember({
       full_name: "Y", email: "y@test.org", phone: "123", password: "strong-pass-1", consent: true,
     })).rejects.toThrow(/phone/i);
-  });
-  it("verifies email with a single-use token", async () => {
-    const { user } = await registerMember({
-      full_name: "Z", email: "z@test.org", password: "strong-pass-1", consent: true,
-    });
-    const token = await createTestVerifyToken(user.id); // helper below
-    await verifyEmail(token);
-    const [row] = await db.select().from(users).where(eq(users.id, user.id));
-    expect(row.email_verified_at).toBeInstanceOf(Date);
   });
 });
 ```
@@ -1898,67 +1962,47 @@ export const resetSchema = z.object({ token: z.string(), password: z.string().mi
 // src/modules/auth/auth.service.ts
 import { auth } from "./auth.config";
 import { db } from "@/db/client";
-import { users, authTokens } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
-import { hash } from "@node-rs/argon2";
-import { enqueueNotification } from "@/modules/platform/notifications/notifications.service";
+import { users } from "@/db/schema";
+import { eq } from "drizzle-orm";
 import { auditLog } from "@/modules/platform/audit/audit.service";
-import { env } from "@/lib/env";
-import { randomBytes, createHash } from "node:crypto";
+import { registerSchema } from "./schemas";
 
+// Server-owned registration: validates consent/phone/password, creates the
+// user + credential account through better-auth (which also queues the
+// verification email via the auth.config callback), records consent and audit.
 export async function registerMember(input: {
   full_name: string; email: string; phone?: string; password: string;
   church?: string; age_range?: string; gender?: string; consent: boolean;
-}, ctx: { ip?: string | null; userAgent?: string | null } = {}) {
-  if (!input.consent) throw new Error("Consent is required");
-  const email = input.email.toLowerCase().trim();
-  const existing = await db.select({ id: users.id }).from(users).where(eq(users.email, email));
-  if (existing.length) throw new Error("An account with this email already exists");
-
+}, ctx: { ip?: string | null; userAgent?: string | null; headers?: Headers } = {}) {
+  const parsed = registerSchema.parse(input); // throws on consent / phone / password mismatch
+  const email = parsed.email.toLowerCase().trim();
   const res = await auth.api.signUpEmail({
     body: {
-      email, password: input.password, name: input.full_name,
-      phone: input.phone, church: input.church, age_range: input.age_range, gender: input.gender,
+      email, password: parsed.password, name: parsed.full_name,
+      phone: parsed.phone, church: parsed.church, age_range: parsed.age_range, gender: parsed.gender,
     },
+    headers: ctx.headers, // sets the session cookie when called from a route handler
   });
   const user = res.user;
-  await db.update(users).set({ consent_at: new Date() }).where(eq(users.id, user.id));
-  await sendVerificationEmail(user.id, user.email, user.full_name, ctx);
-  await auditLog(db, { actor_user_id: user.id, action: "user.register", entity_type: "users", entity_id: user.id });
-  return { user };
-}
-
-async function tokenFor(userId: string, identifier: string, type: "email_verify" | "password_reset" | "staff_invite") {
-  const raw = randomBytes(32).toString("hex");
-  const token_hash = createHash("sha256").update(raw).digest("hex");
-  const expires_at = new Date(Date.now() + 60 * 60 * 1000); // 60 min default (SEC-09)
-  await db.insert(authTokens).values({ user_id: userId, identifier, type, token_hash, expires_at });
-  return raw;
-}
-
-export async function sendVerificationEmail(userId: string, email: string, name: string, ctx: { ip?: string | null } = {}) {
-  const raw = await tokenFor(userId, email, "email_verify");
-  const url = `${env().APP_URL}/verify-email?token=${raw}`;
-  await db.transaction((tx) =>
-    enqueueNotification(tx, { type: "verify_email", recipient: email, payload: { url, name } }),
-  );
-}
-
-export async function verifyEmail(raw: string) {
-  const token_hash = createHash("sha256").update(raw).digest("hex");
-  const [row] = await db.select().from(authTokens).where(eq(authTokens.token_hash, token_hash));
-  if (!row || row.type !== "email_verify" || row.used_at || row.expires_at < new Date()) {
-    throw new Error("Invalid or expired verification link");
-  }
-  await db.transaction(async (tx) => {
-    await tx.update(users).set({ email_verified_at: new Date() }).where(eq(users.id, row.user_id!));
-    await tx.update(authTokens).set({ used_at: new Date() }).where(eq(authTokens.id, row.id));
-    await auditLog(tx, { actor_user_id: row.user_id, action: "user.verify_email", entity_type: "users", entity_id: row.user_id });
+  await db.update(users)
+    .set({ consent_at: new Date(), status: "active" })
+    .where(eq(users.id, user.id));
+  await auditLog(db, {
+    actor_user_id: user.id, action: "user.register", entity_type: "users", entity_id: user.id,
+    ip: ctx.ip, user_agent: ctx.userAgent,
   });
+  return { user, session: res.session };
 }
+
+// Email verification itself is handled by better-auth:
+//   - token generation + validation live in the `verification` table
+//   - email delivery is the auth.config `sendVerificationEmail` callback,
+//     which enqueues our react-email template through the notifications outbox
+// The public page (Task 19) only reads the ?error= / success state from the
+// better-auth redirect; there is no hand-rolled verify endpoint.
 ```
 
-Add the test helper `createTestVerifyToken` (calls `tokenFor` via an export, or inserts a row directly with a known hash) in `tests/integration/auth-register.test.ts`.
+Add a thin route `src/app/api/auth/register/route.ts` that accepts the form POST, calls `registerMember` with the request headers, and returns the result — this keeps consent, phone validation and audit in one server-owned place rather than calling better-auth's `/sign-up/email` directly from the client (ARC-02/04).
 
 - [ ] **Step 4: Run tests** → PASS.
 
@@ -1985,12 +2029,18 @@ git commit -m "feat: member registration with consent, phone validation, email v
 // tests/integration/auth-login.test.ts
 import { describe, it, expect } from "vitest";
 import { db } from "@/db/client";
-import { users, sessions } from "@/db/schema";
+import { users, sessions, notifications } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { registerMember, loginMember, requestPasswordReset, resetPassword, suspendUser } from "@/modules/auth/auth.service";
 
 async function makeUser(email: string) {
   return registerMember({ full_name: "T", email, password: "strong-pass-1", consent: true });
+}
+async function readResetToken(email: string) {
+  const [mail] = await db.select().from(notifications)
+    .where(eq(notifications.recipient, email));
+  const url = String((mail.payload as { url: string }).url);
+  return new URL(url).searchParams.get("token")!;
 }
 
 describe("login", () => {
@@ -2001,25 +2051,30 @@ describe("login", () => {
     const [row] = await db.select().from(users).where(eq(users.id, user.id));
     expect(row.last_login_at).toBeInstanceOf(Date);
   });
-  it("rejects suspended users and revokes sessions", async () => {
+  it("rejects suspended users and revokes their sessions", async () => {
     const { user } = await makeUser("susp@test.org");
     await loginMember({ email: "susp@test.org", password: "strong-pass-1" });
     await suspendUser(user.id, { actorId: null, ip: null });
     await expect(loginMember({ email: "susp@test.org", password: "strong-pass-1" }))
-      .rejects.toThrow(/suspended|inactive/i);
+      .rejects.toThrow(/suspended|deactivated/i);
     const rows = await db.select().from(sessions).where(eq(sessions.user_id, user.id));
+    expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((r) => r.revoked_at)).toBe(true);
   });
-  it("resets password with a single-use token and revokes other sessions", async () => {
+  it("gives a generic outcome for unknown emails on password reset", async () => {
+    await expect(requestPasswordReset("nobody@test.org")).resolves.not.toThrow();
+  });
+  it("resets a password via the emailed token and revokes other sessions", async () => {
     await makeUser("reset@test.org");
-    await loginMember({ email: "reset@test.org", password: "strong-pass-1" });
-    const token = await requestPasswordReset("reset@test.org");
-    await resetPassword({ token, password: "new-strong-2", confirmPassword: "new-strong-2" });
+    const before = await loginMember({ email: "reset@test.org", password: "strong-pass-1" });
+    await requestPasswordReset("reset@test.org");
+    const token = await readResetToken("reset@test.org");
+    await resetPassword({ token, newPassword: "new-strong-2" });
     await expect(loginMember({ email: "reset@test.org", password: "strong-pass-1" })).rejects.toThrow();
     expect(await loginMember({ email: "reset@test.org", password: "new-strong-2" })).toBeTruthy();
-  });
-  it("gives a generic response for unknown emails", async () => {
-    expect(await requestPasswordReset("nobody@test.org")).toBeTypeOf("string"); // does not throw
+    // the pre-reset session was revoked
+    const rows = await db.select().from(sessions).where(eq(sessions.user_id, before.user.id));
+    expect(rows.every((r) => r.revoked_at)).toBe(true);
   });
 });
 ```
@@ -2030,19 +2085,19 @@ describe("login", () => {
 
 ```ts
 export async function loginMember(input: { email: string; password: string }, ctx: { ip?: string | null; headers?: Headers } = {}) {
-  const [row] = await db.select().from(users).where(eq(users.email, input.email.toLowerCase().trim()));
+  const email = input.email.toLowerCase().trim();
+  const [row] = await db.select().from(users).where(eq(users.email, email));
   if (row && row.status !== "active") {
     await revokeAllSessions(row.id);
     throw new Error("Account suspended or deactivated");
   }
-  let res;
   try {
-    res = await auth.api.signInEmail({ body: { email: input.email.toLowerCase().trim(), password: input.password } });
+    const res = await auth.api.signInEmail({ body: { email, password: input.password }, headers: ctx.headers });
+    await db.update(users).set({ last_login_at: new Date() }).where(eq(users.id, res.user.id));
+    return { user: res.user, session: res.session };
   } catch {
     throw new Error("Invalid email or password"); // generic — no user enumeration (SEC-06)
   }
-  await db.update(users).set({ last_login_at: new Date() }).where(eq(users.id, res.user.id));
-  return { user: res.user, session: res.session };
 }
 
 export async function logoutSession(headers: Headers) {
@@ -2054,38 +2109,25 @@ export async function revokeAllSessions(userId: string) {
     .where(and(eq(sessions.user_id, userId), isNull(sessions.revoked_at)));
 }
 
-export async function requestPasswordReset(email: string): Promise<string> {
-  const [row] = await db.select().from(users).where(eq(users.email, email.toLowerCase().trim()));
-  // Generic behaviour whether or not the email exists (AUTH-05)
-  if (!row) return randomBytes(16).toString("hex");
-  const raw = await tokenFor(row.id, row.email, "password_reset");
-  await db.transaction((tx) =>
-    enqueueNotification(tx, {
-      type: "password_reset", recipient: row.email, payload: { url: `${env().APP_URL}/reset-password?token=${raw}`, name: row.full_name },
-    }),
-  );
-  return raw;
+// better-auth generates and validates the token in the `verification` table and
+// calls our auth.config `sendResetPassword` callback (which enqueues the email)
+// only when the email exists — a generic outcome either way (AUTH-05/SEC-09).
+export async function requestPasswordReset(email: string) {
+  await auth.api.requestPasswordReset({
+    body: { email: email.toLowerCase().trim(), redirectTo: "/reset-password" },
+  });
 }
 
-export async function resetPassword(input: { token: string; password: string }) {
-  const token_hash = createHash("sha256").update(input.token).digest("hex");
-  const [row] = await db.select().from(authTokens).where(eq(authTokens.token_hash, token_hash));
-  if (!row || row.type !== "password_reset" || row.used_at || row.expires_at < new Date()) {
-    throw new Error("Invalid or expired reset link");
-  }
-  const newHash = await hash(input.password, { algorithm: 2, memoryCost: 19456, timeCost: 2, parallelism: 1 });
-  await db.transaction(async (tx) => {
-    await tx.update(users).set({ password_hash: newHash, updated_at: new Date() }).where(eq(users.id, row.user_id!));
-    await tx.update(authTokens).set({ used_at: new Date() }).where(eq(authTokens.id, row.id));
-    await auditLog(tx, { actor_user_id: row.user_id, action: "user.password_reset", entity_type: "users", entity_id: row.user_id });
-  });
-  await revokeAllSessions(row.user_id!);
+export async function resetPassword(input: { token: string; newPassword: string }) {
+  await auth.api.resetPassword({ body: { token: input.token, newPassword: input.newPassword } });
+  // revokeSessionsOnPasswordReset: true in auth.config invalidates other sessions (SEC-02)
+  await auditLog(db, { action: "user.password_reset", entity_type: "users", changes: { via: "email_token" } });
 }
 
 export async function suspendUser(id: string, ctx: { actorId: string | null; ip: string | null }) {
   await db.transaction(async (tx) => {
     await tx.update(users).set({ status: "suspended", updated_at: new Date() }).where(eq(users.id, id));
-    await auditLog(tx, { actor_user_id: ctx.actorId, action: "user.suspend", entity_type: "users", entity_id: id });
+    await auditLog(tx, { actor_user_id: ctx.actorId, action: "user.suspend", entity_type: "users", entity_id: id, ip: ctx.ip });
   });
   await revokeAllSessions(id);
 }
@@ -2093,12 +2135,12 @@ export async function suspendUser(id: string, ctx: { actorId: string | null; ip:
 export async function restoreUser(id: string, ctx: { actorId: string; ip: string | null }) {
   await db.transaction(async (tx) => {
     await tx.update(users).set({ status: "active", updated_at: new Date() }).where(eq(users.id, id));
-    await auditLog(tx, { actor_user_id: ctx.actorId, action: "user.restore", entity_type: "users", entity_id: id });
+    await auditLog(tx, { actor_user_id: ctx.actorId, action: "user.restore", entity_type: "users", entity_id: id, ip: ctx.ip });
   });
 }
 ```
 
-Add `isNull` to the `drizzle-orm` import at the top of the file.
+Add `isNull` to the `drizzle-orm` import at the top of the file, and import `sessions`, `and` alongside `eq`.
 
 - [ ] **Step 4: Run tests** → PASS.
 
@@ -2643,7 +2685,7 @@ git commit -m "ci: lint/typecheck/test/build/e2e pipeline + phase-1 acceptance s
 
 - [ ] **Step 1: Write `README.md`** — project overview, how to run (`pnpm install`, `.env.local` from `.env.example`, `pnpm db:migrate`, `pnpm db:seed`, `SUPERADMIN_* pnpm db:create-superadmin`, `pnpm dev`), scripts table, and where the PRD pack and spec live.
 
-- [ ] **Step 2: Write `docs/ASSUMPTIONS.md`** — every deviation and default: A1–A9 from the spec (2FA eliminated, design system supersedes placeholder branding, Neon+Drizzle, better-auth with data-driven RBAC, Upstash, react-email/nodemailer, Vercel Cron, `avatar_media_id` deferred, superadmin CLI), plus the better-auth column additions (`users.image`, `sessions.createdAt/updatedAt`, `auth_tokens.identifier`).
+- [ ] **Step 2: Write `docs/ASSUMPTIONS.md`** — every deviation and default: A1–A9 from the spec (2FA eliminated, design system supersedes placeholder branding, Neon+Drizzle, better-auth with data-driven RBAC, Upstash, react-email/nodemailer, Vercel Cron, `avatar_media_id` deferred, superadmin CLI), plus: credentials live in better-auth's `account` table (no `users.password_hash`); better-auth owns the `verification` table for email-verify/password-reset tokens while `auth_tokens` holds staff invites only; `users.image` added as a better-auth core field; `sessions` gained `created_at`/`updated_at`; `users.consent_at` is nullable (enforced by the registration schema).
 
 - [ ] **Step 3: Verify the Phase 1 exit criteria** — run through PRD 10 §2 for Phase 1: *Super Admin can log in, create staff, and see an empty dashboard. Permission checks tested. Migrations and seeds run from scratch.* Confirm green.
 
