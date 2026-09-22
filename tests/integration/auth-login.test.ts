@@ -26,6 +26,8 @@ async function readResetToken(email: string) {
 }
 
 describe("login", () => {
+  // Remote Neon queries take seconds each under load; 30s timed out
+  // intermittently for the multi-step flows, so every test gets 60s.
   it("logs in and records last_login_at", async () => {
     const email = `login-${s}@test.org`;
     const { user } = await makeUser(email);
@@ -33,7 +35,7 @@ describe("login", () => {
     expect(res.user.id).toBe(user.id);
     const [row] = await db.select().from(users).where(eq(users.id, user.id));
     expect(row.last_login_at).toBeInstanceOf(Date);
-  }, 30000);
+  }, 60000);
   it("rejects suspended users and revokes their sessions", async () => {
     const email = `susp-${s}@test.org`;
     const { user } = await makeUser(email);
@@ -44,10 +46,10 @@ describe("login", () => {
     const rows = await db.select().from(sessions).where(eq(sessions.user_id, user.id));
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((r) => r.revoked_at)).toBe(true);
-  }, 30000);
+  }, 60000);
   it("gives a generic outcome for unknown emails on password reset", async () => {
     await expect(requestPasswordReset(`nobody-${s}@test.org`)).resolves.not.toThrow();
-  }, 30000);
+  }, 60000);
   it("resets a password via the emailed token and revokes other sessions", async () => {
     const email = `reset-${s}@test.org`;
     await makeUser(email);
@@ -67,5 +69,5 @@ describe("login", () => {
       .where(eq(sessions.user_id, before.user.id))).filter((r) => preIds.has(r.id));
     expect(survivors.every((r) => r.revoked_at)).toBe(true);
     expect(await loginMember({ email, password: "new-strong-2" })).toBeTruthy();
-  }, 30000);
+  }, 60000);
 });
