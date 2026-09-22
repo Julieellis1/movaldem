@@ -2,6 +2,24 @@ import { defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
+// `vite` is not a direct dependency, so pnpm's strict node_modules does not
+// expose it at the project root. Resolve it through vitest's own closure.
+const require = createRequire(import.meta.url);
+const VITE_NODE = require
+  .resolve("vitest/package.json")
+  .replace(/node_modules[\\/]+vitest[\\/]+package\.json$/, "node_modules/vite/dist/node/index.js");
+const { transformWithEsbuild, loadEnv } = require(VITE_NODE);
+
+// Vitest (unlike Next.js) does not read .env.local, so integration tests would
+// otherwise fall back to the placeholder DATABASE_URL below and fail against a
+// nonexistent host. Load the project's .env files with an empty prefix so every
+// variable (not just VITE_*) lands in process.env, then keep placeholders as a
+// last resort for CI, where env vars come from the platform.
+const envFiles = loadEnv("test", process.cwd(), "");
+for (const [k, v] of Object.entries(envFiles)) {
+  if (!process.env[k]) process.env[k] = v;
+}
+
 const REQUIRED = {
   DATABASE_URL: "postgres://u:p@host/db",
   APP_URL: "http://localhost:3000",
@@ -10,16 +28,14 @@ const REQUIRED = {
   CRON_SECRET: "a".repeat(16),
 };
 
-Object.assign(process.env, REQUIRED);
+// Inject placeholders only for vars the environment doesn't already provide
+// (e.g. the real DATABASE_URL from .env.local via the runner).
+for (const [k, v] of Object.entries(REQUIRED)) {
+  if (!process.env[k]) process.env[k] = v;
+}
 
 // React-email templates are .tsx, and vitest's node environment has no JSX
 // transform of its own, so JSX has to be lowered before rolldown parses it.
-// `vite` is only reachable inside vitest's own pnpm virtual store.
-const require = createRequire(import.meta.url);
-const { transformWithEsbuild } = require(
-  require.resolve("vitest/package.json").replace(/node_modules[\\/]+vitest[\\/]+package\.json$/, "node_modules/vite/dist/node/index.js"),
-);
-
 const jsx = {
   name: "tsx-jsx",
   enforce: "pre",
@@ -33,6 +49,15 @@ export default defineConfig({
   plugins: [jsx],
   test: {
     include: ["tests/**/*.test.ts"],
+    // The suite's first tests in each fork pay for the cold module graph
+    // (Next.js runtime, drizzle, better-auth), which alone can exceed the 5s
+    // default on slower machines. Integration tests also hit a remote Neon DB.
+    testTimeout: 30000,
+    // Integration tests share one Neon DB, so parallel file workers race on
+    // the same rows (e.g. the queue worker would send the notifications
+    // test's row). Single-fork keeps every file sequential.
+    pool: "forks",
+    singleFork: true,
   },
   resolve: {
     alias: {

@@ -18,6 +18,8 @@
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "^1.7.5",
+    "@neon/config": "^1.7.2",
+    "@neon/env": "^1.4.3",
     "@neondatabase/serverless": "^1.1.0",
     "@node-rs/argon2": "^2.2.1",
     "@upstash/ratelimit": "^2.1.0",
@@ -51,9 +53,9 @@
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.9.8",
     "tailwindcss": "^4",
+    "tsx": "^4.19.0",
     "typescript": "^5",
-    "vitest": "^5.0.1",
-    "tsx": "^4.19.0"
+    "vitest": "^5.0.1"
   },
   "packageManager": "pnpm@12.3.4"
 }

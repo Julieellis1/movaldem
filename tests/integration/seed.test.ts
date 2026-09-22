@@ -21,12 +21,12 @@ describe("seed", () => {
     const memberRole = r.find((x) => x.key === "member")!;
     const memberLinks = await db.select().from(rolePermissions).where(eq(rolePermissions.role_id, memberRole.id));
     expect(memberLinks.length).toBe(0);
-  });
+  }, 120000);
   it("seeds settings defaults and is idempotent", async () => {
     await seed(db);
     await seed(db);
     const s = await db.select().from(settings).where(eq(settings.key, "quiz.require_verified_email"));
     expect(s.length).toBe(1);
     expect(s[0].value).toBe(true);
-  });
+  }, 240000);
 });

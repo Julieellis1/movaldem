@@ -66,9 +66,12 @@ describe("scaffold", () => {
   });
 
   describe("@/ alias", () => {
+    // Importing @/app/page pulls in the Next.js runtime on a cold module
+    // graph, which can take longer than the default timeout on slower
+    // machines. It is a smoke test for the alias, not a perf assertion.
     it("resolves and imports @/app/page", async () => {
       const { default: Page } = await import("@/app/page");
       expect(Page).toBeDefined();
-    });
+    }, 60000);
   });
 });

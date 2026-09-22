@@ -11,7 +11,7 @@ describe("audit", () => {
     });
     const rows = await db.select().from(auditLogs);
     expect(rows.some((r) => r.id === id)).toBe(true);
-  });
+  }, 30000);
   it("redacts known secret fields", () => {
     const out = redactSecrets({ before: { paystack_secret_key: "sk_live_x", name: "Grace" } });
     expect(out.before.paystack_secret_key).toBe("[REDACTED]");

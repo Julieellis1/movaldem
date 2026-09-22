@@ -1,11 +1,16 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { db } from "@/db/client";
 import { notifications } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { enqueueNotification } from "@/modules/platform/notifications/notifications.service";
 import { processNotificationQueue } from "@/jobs/notifications-worker";
 
+// Leftover queued rows from earlier runs would inflate `sent`, so clear the
+// queue before each case (the tests only assert on rows they create).
 describe("queue worker", () => {
+  beforeEach(async () => {
+    await db.delete(notifications);
+  });
   it("sends queued notifications exactly once across double runs", async () => {
     const id = await db.transaction((tx) =>
       enqueueNotification(tx, { type: "verify_email", recipient: "w@test.org", payload: { url: "https://x" } }),
@@ -17,14 +22,14 @@ describe("queue worker", () => {
     const [row] = await db.select().from(notifications).where(eq(notifications.id, id));
     expect(row.status).toBe("sent");
     expect(row.attempts).toBe(1);
-  });
+  }, 30000);
   it("records failure and retries later", async () => {
     const id = await db.transaction((tx) =>
-      enqueueNotification(tx, { type: "verify_email", recipient: "f@test.org", payload: {} }),
+      enqueueNotification(tx, { type: "verify_email", recipient: "f@test.org", payload: { url: "https://x" } }),
     );
     await processNotificationQueue(db, { max: 10, send: async () => { throw new Error("smtp down"); } });
     const [row] = await db.select().from(notifications).where(eq(notifications.id, id));
     expect(row.status).toBe("failed");
     expect(row.last_error).toContain("smtp down");
-  });
+  }, 30000);
 });

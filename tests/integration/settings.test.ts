@@ -13,7 +13,7 @@ describe("settings", () => {
     await setSetting(db, "paystack.secret_key", "sk_live_abcdef", { isSecret: true, updatedBy: null });
     const cipher = await getSecret(db, "paystack.secret_key"); // returns plaintext
     expect(cipher).toBe("sk_live_abcdef");
-    const raw = await db.execute<{ value: unknown }>`select value from settings where key = 'paystack.secret_key'`;
+    const raw = await db.execute<{ value: unknown }>("select value from settings where key = 'paystack.secret_key'");
     expect(JSON.stringify(raw.rows[0].value)).not.toContain("sk_live_abcdef");
   });
 });
