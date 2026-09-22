@@ -48,3 +48,16 @@ email, but better-auth only does so when `emailVerification.sendOnSignUp` (or
 The `sendVerificationEmail` callback awaits the outbox insert (better-auth
 awaits this callback via `runInBackgroundOrAwait`), so the queued row is
 visible to callers the moment sign-up returns.
+
+## A5: `/admin` middleware runs on the Node.js runtime, not edge
+
+**Conflict:** Next.js middleware defaults to the edge runtime, but
+`src/middleware.ts` needs `auth.api.getSession`, whose config pulls in
+`@node-rs/argon2` (native binary) and `node:crypto` (IP hashing). Edge cannot
+load either — the dev server emits `'hash' is not exported from
+'@node-rs/argon2'` and the middleware crashes on every request.
+
+**Resolution:** `config.runtime: "nodejs"` on the middleware (supported by
+Next 15.5: a middleware file whose segment config declares `runtime: 'nodejs'`
+is built as Node middleware). Session lookup, RBAC imports and audit hashing
+then run in-process with no edge restrictions.
