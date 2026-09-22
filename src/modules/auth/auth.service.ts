@@ -10,7 +10,7 @@ import { registerSchema } from "./schemas";
 // verification email via the auth.config callback), records consent and audit.
 export async function registerMember(input: {
   full_name: string; email: string; phone?: string; password: string;
-  church?: string; age_range?: string; gender?: string; consent: boolean;
+  confirmPassword: string; church?: string; age_range?: string; gender?: string; consent: boolean;
 }, ctx: { ip?: string | null; userAgent?: string | null; headers?: Headers } = {}) {
   const parsed = registerSchema.parse(input); // throws on consent / phone / password mismatch
   const email = parsed.email.toLowerCase().trim();
@@ -29,7 +29,8 @@ export async function registerMember(input: {
     actor_user_id: user.id, action: "user.register", entity_type: "users", entity_id: user.id,
     ip: ctx.ip, user_agent: ctx.userAgent,
   });
-  return { user, session: res.session };
+  // `session` is absent on better-auth's shouldSkipAutoSignIn variant.
+  return { user, session: "session" in res ? res.session : null };
 }
 
 // Email verification itself is handled by better-auth:

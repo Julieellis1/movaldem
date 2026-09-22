@@ -8,6 +8,20 @@
       "when": 1789959550905,
       "tag": "0000_colossal_nekra",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790006048877,
+      "tag": "0001_luxuriant_blazing_skull",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790006657744,
+      "tag": "0002_white_wendell_rand",
+      "breakpoints": true
     }
   ]
 }

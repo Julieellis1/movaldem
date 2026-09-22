@@ -1,6 +1,7 @@
 import { auditLogs } from "@/db/schema";
 import { redactSecrets } from "./redact";
 import { hashIp } from "@/lib/ip-hash";
+import type { DB } from "@/db/client";
 
 export type AuditInput = {
   actor_user_id?: string;
@@ -13,8 +14,12 @@ export type AuditInput = {
   user_agent?: string | null;
 };
 
+type Db = DB | Parameters<Parameters<DB["transaction"]>[0]>[0];
+
 // Deliberately no update()/delete() — append-only (AUD-02).
-export async function auditLog(tx: Parameters<Parameters<import("@/db/client").DB["transaction"]>[0]>[0], input: AuditInput) {
+// Accepts either the pool-backed db or an in-flight transaction, so callers can
+// write the audit row atomically with the change it describes.
+export async function auditLog(tx: Db, input: AuditInput) {
   const [row] = await tx.insert(auditLogs).values({
     actor_user_id: input.actor_user_id,
     actor_role: input.actor_role,

@@ -1,4 +1,5 @@
-import { pgTable, pgEnum, uuid, text, timestamp, boolean, integer, jsonb, primaryKey, index, uniqueIndex, pgPolicy } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, timestamp, boolean, integer, jsonb, primaryKey, index,
+  uniqueIndex } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const userStatus = pgEnum("user_status", ["active", "suspended", "deactivated"]);
@@ -14,7 +15,11 @@ export const users = pgTable("users", {
   image: text("image"),
   phone: text("phone"),
   // No password_hash: better-auth stores credentials in the `account` table
-  // (providerId = "credential") â see auth.config.ts in Task 9.
+  // (providerId = "credential") — see auth.config.ts in Task 9.
+  // `email_verified` is better-auth's boolean state (its emailVerified field is
+  // typed boolean, so it cannot write a timestamp); `email_verified_at` is our
+  // PRD-09 record of *when*, set by the auth.config user.update.after hook.
+  email_verified: boolean("email_verified").notNull().default(false),
   email_verified_at: timestamp("email_verified_at", { withTimezone: true }),
   status: userStatus("status").notNull().default("active"),
   church: text("church"),
@@ -58,6 +63,7 @@ export const verifications = pgTable("verification", {
   value: text("value").notNull(),
   expires_at: timestamp("expires_at", { withTimezone: true }).notNull(),
   created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }),
 }, (t) => ({
   identifierIdx: index("verification_identifier_idx").on(t.identifier),
 }));

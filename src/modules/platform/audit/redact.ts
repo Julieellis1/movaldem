@@ -1,6 +1,6 @@
 const SECRET_FIELDS = ["paystack_secret_key", "paystack_public_key", "password", "password_hash",
   "smtp_url", "storage_secret", "storage_key", "totp_secret", "app_secret", "token", "token_hash"];
-export function redactSecrets(changes: unknown): unknown {
+export function redactSecrets<T>(changes: T): T {
   if (!changes || typeof changes !== "object") return changes;
   const walk = (v: unknown): unknown => {
     if (Array.isArray(v)) return v.map(walk);
@@ -13,5 +13,6 @@ export function redactSecrets(changes: unknown): unknown {
     }
     return v;
   };
-  return walk(changes);
+  // Shape is preserved; secret values are stringified to "[REDACTED]".
+  return walk(changes) as T;
 }

@@ -1,6 +1,8 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { db } from "@/db/client";
+import { users } from "@/db/schema";
+import { and, eq, isNull } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import { env } from "@/lib/env";
 import { hashIp } from "@/lib/ip-hash";
@@ -9,17 +11,31 @@ import { enqueueNotification } from "@/modules/platform/notifications/notificati
 
 export const auth = betterAuth({
   baseURL: env().APP_URL,
-  database: drizzleAdapter(db, { provider: "pg", schema: { ...schema, user: schema.users } }),
+  database: drizzleAdapter(db, {
+    provider: "pg",
+    // The schema-check and model resolution address tables by their *key* in
+    // this object, but our schema exports use plural names (`accounts`,
+    // `verifications`). Alias them to the singular model names better-auth
+    // expects alongside the existing `user` mapping.
+    schema: {
+      ...schema,
+      user: schema.users,
+      account: schema.accounts,
+      verification: schema.verifications,
+    },
+  }),
   advanced: { database: { generateId: false } }, // Postgres defaultRandom() supplies UUIDs
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
     maxPasswordLength: 128,
     // argon2id instead of the default scrypt (SEC-01).
-    password: { hash: hashPassword, verify: verifyPassword },
+    password: { hash: hashPassword, verify: ({ hash, password }) => verifyPassword(password, hash) },
     // better-auth generates and validates the reset token; we just deliver it.
+    // Awaited (not fire-and-forget) because better-auth awaits this callback —
+    // `void` here would race callers that read the queued row right after.
     sendResetPassword: async ({ user, url }) => {
-      void db.transaction((tx) =>
+      await db.transaction((tx) =>
         enqueueNotification(tx, {
           type: "password_reset",
           recipient: user.email,
@@ -30,9 +46,12 @@ export const auth = betterAuth({
     revokeSessionsOnPasswordReset: true, // SEC-02
   },
   emailVerification: {
+    // Queue the verification email on sign-up so registration can enforce
+    // AUTH-03 (members must verify before quiz access in Phase 5).
+    sendOnSignUp: true,
     // better-auth generates and validates the token; we just deliver it.
     sendVerificationEmail: async ({ user, url }) => {
-      void db.transaction((tx) =>
+      await db.transaction((tx) =>
         enqueueNotification(tx, {
           type: "verify_email",
           recipient: user.email,
@@ -46,7 +65,7 @@ export const auth = betterAuth({
     modelName: "users",
     fields: {
       name: "full_name",
-      emailVerified: "email_verified_at",
+      emailVerified: "email_verified",
       image: "image",
       createdAt: "created_at",
       updatedAt: "updated_at",
@@ -58,6 +77,29 @@ export const auth = betterAuth({
       gender: { type: "string", required: false, input: true },
       status: { type: "string", required: false, defaultValue: "active", input: false, returned: true },
       leaderboard_display: { type: "string", required: false, defaultValue: "abbreviated", input: false },
+    },
+  },
+  account: {
+    modelName: "account",
+    fields: {
+      userId: "user_id",
+      accountId: "account_id",
+      providerId: "provider_id",
+      accessToken: "access_token",
+      refreshToken: "refresh_token",
+      idToken: "id_token",
+      accessTokenExpiresAt: "access_token_expires_at",
+      refreshTokenExpiresAt: "refresh_token_expires_at",
+      createdAt: "created_at",
+      updatedAt: "updated_at",
+    },
+  },
+  verification: {
+    modelName: "verification",
+    fields: {
+      expiresAt: "expires_at",
+      createdAt: "created_at",
+      updatedAt: "updated_at",
     },
   },
   session: {
@@ -77,6 +119,19 @@ export const auth = betterAuth({
   // No `verification` mapping: better-auth owns the `verification` table for
   // email-verify and password-reset tokens. Our `auth_tokens` holds staff invites.
   databaseHooks: {
+    user: {
+      update: {
+        // better-auth flips `email_verified` to true when the emailed link is
+        // clicked; mirror it into the PRD-09 timestamp. Idempotent — the
+        // conditional WHERE means only the first verification writes.
+        after: async (user) => {
+          if (!user.emailVerified) return;
+          await db.update(users)
+            .set({ email_verified_at: new Date() })
+            .where(and(eq(users.id, user.id), isNull(users.email_verified_at)));
+        },
+      },
+    },
     session: {
       create: {
         before: async (session) => {
