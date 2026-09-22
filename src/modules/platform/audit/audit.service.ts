@@ -4,11 +4,11 @@ import { hashIp } from "@/lib/ip-hash";
 import type { DB } from "@/db/client";
 
 export type AuditInput = {
-  actor_user_id?: string;
-  actor_role?: string;
+  actor_user_id?: string | null;
+  actor_role?: string | null;
   action: string;
   entity_type: string;
-  entity_id?: string;
+  entity_id?: string | null;
   changes?: unknown;
   ip?: string | null;
   user_agent?: string | null;
