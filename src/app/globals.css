@@ -14,10 +14,26 @@
   --color-on-surface: #e3e1ec;
   --color-on-surface-variant: #cbc3d7;
   --color-primary: #d0bcff;
+  --color-primary-foreground: #340080;
   --color-primary-container: #a078ff;
   --color-on-primary-container: #340080;
   --color-secondary: #ddb7ff;
+  --color-secondary-foreground: #2d0055;
   --color-secondary-container: #6f00be;
+  /* shadcn/ui compatibility aliases — map our Luminous Sanctuary tokens onto
+     the names shadcn components reference (ADM-04). */
+  --color-muted: #1b1d27;
+  --color-muted-foreground: #9ca3af;
+  --color-accent: #242735;
+  --color-accent-foreground: #e3e1ec;
+  --color-popover: #13141b;
+  --color-popover-foreground: #e3e1ec;
+  --color-card: #13141b;
+  --color-card-foreground: #e3e1ec;
+  --color-input: #494454;
+  --color-ring: #d0bcff;
+  --color-destructive: #b3261e;
+  --color-destructive-foreground: #ffffff;
   --color-tertiary: #ffb95f;
   --color-tertiary-container: #ca8100;
   --color-on-tertiary: #472a00;
