@@ -6,11 +6,15 @@ import { loginMember } from "@/modules/auth/auth.service";
 export async function POST(req: Request) {
   const json = await req.json();
   try {
-    const { user, session } = await loginMember(json, {
+    const { user, session, setCookieHeaders } = await loginMember(json, {
       ip: req.headers.get("x-forwarded-for"),
       headers: req.headers,
     });
-    return NextResponse.json({ user, session });
+    const res = NextResponse.json({ user, session });
+    setCookieHeaders?.forEach((value, key) => {
+      if (key.toLowerCase() === "set-cookie") res.headers.append("set-cookie", value);
+    });
+    return res;
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Invalid email or password" },

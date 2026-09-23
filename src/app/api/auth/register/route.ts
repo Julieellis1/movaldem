@@ -10,10 +10,14 @@ export async function POST(req: Request) {
   if (!json || typeof json !== "object") {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
-  const { user, session } = await registerMember(json, {
+  const { user, session, setCookieHeaders } = await registerMember(json, {
     ip: req.headers.get("x-forwarded-for"),
     userAgent: req.headers.get("user-agent"),
     headers: req.headers,
   });
-  return NextResponse.json({ user, session });
+  const res = NextResponse.json({ user, session });
+  setCookieHeaders?.forEach((value, key) => {
+    if (key.toLowerCase() === "set-cookie") res.headers.append("set-cookie", value);
+  });
+  return res;
 }

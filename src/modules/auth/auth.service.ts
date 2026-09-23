@@ -19,9 +19,11 @@ export async function registerMember(input: {
       email, password: parsed.password, name: parsed.full_name,
       phone: parsed.phone, church: parsed.church, age_range: parsed.age_range, gender: parsed.gender,
     },
-    headers: ctx.headers, // sets the session cookie when called from a route handler
+    headers: ctx.headers,
+    returnHeaders: true, // Set-Cookie lives on headers — caller must forward it
   });
-  const user = res.user;
+  const payload = res.response;
+  const user = payload.user;
   await db.update(users)
     .set({ consent_at: new Date(), status: "active" })
     .where(eq(users.id, user.id));
@@ -30,7 +32,11 @@ export async function registerMember(input: {
     ip: ctx.ip, user_agent: ctx.userAgent,
   });
   // `session` is absent on better-auth's shouldSkipAutoSignIn variant.
-  return { user, session: "session" in res ? res.session : null };
+  return {
+    user,
+    session: "session" in payload ? payload.session : null,
+    setCookieHeaders: res.headers,
+  };
 }
 
 // Email verification itself is handled by better-auth:
@@ -54,12 +60,17 @@ export async function loginMember(
     const res = await auth.api.signInEmail({
       body: { email, password: input.password },
       headers: ctx.headers,
+      returnHeaders: true, // Set-Cookie lives on headers — caller must forward it
     });
     await db.update(users)
       .set({ last_login_at: new Date() })
-      .where(eq(users.id, res.user.id));
+      .where(eq(users.id, res.response.user.id));
     // `session` is absent on better-auth's token-only sign-in variants.
-    return { user: res.user, session: "session" in res ? res.session : null };
+    return {
+      user: res.response.user,
+      session: "session" in res.response ? res.response.session : null,
+      setCookieHeaders: res.headers,
+    };
   } catch {
     // generic — no user enumeration (SEC-06)
     throw new Error("Invalid email or password");
