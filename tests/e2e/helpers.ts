@@ -129,3 +129,31 @@ async function expectValue(locator: ReturnType<Page["getByLabel"]>, expected: st
   }
   throw new Error(`input never held expected value: ${expected}`);
 }
+
+/**
+ * Register a plain member (no staff role) through the public API so admin
+ * pages have someone to list, search and suspend.
+ */
+export async function seedMember(_page: Page): Promise<{ id: string; name: string; email: string }> {
+  await warmDevRoutes();
+  const name = `Grace ${Date.now().toString(36)}`;
+  const email = `grace-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@e2e.test`;
+  const password = "strong-pass-1";
+  const res = await fetch(`${BASE}/api/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      full_name: name,
+      email,
+      password,
+      confirmPassword: password,
+      consent: true,
+    }),
+    signal: AbortSignal.timeout(180_000),
+  });
+  if (!res.ok) {
+    throw new Error(`seedMember register failed: ${res.status} ${await res.text()}`);
+  }
+  const body = (await res.json()) as { user: { id: string } };
+  return { id: body.user.id, name, email };
+}

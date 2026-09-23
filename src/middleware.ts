@@ -1,10 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/modules/auth/auth.config";
 
+// More specific paths must come first: `pathname.startsWith("/admin/users")
+// is true for /admin/users/staff too, so the broader members.read rule would
+// shadow the staff/roles rules if it were listed first.
 const ADMIN_PERMISSIONS: Record<string, string> = {
-  "/admin/users": "members.read",
   "/admin/users/staff": "staff.read",
   "/admin/users/roles": "roles.read",
+  "/admin/users": "members.read",
   "/admin/settings": "settings.read",
   "/admin/audit-logs": "audit_logs.read",
 };
@@ -25,7 +28,12 @@ export async function middleware(req: NextRequest) {
   if (required) {
     const { loadPermissions, can } = await import("@/modules/auth/rbac.service");
     const perms = await loadPermissions(session.user.id);
-    if (!can(perms, required)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!can(perms, required)) {
+      const url = req.nextUrl.clone();
+      url.pathname = "/admin";
+      url.searchParams.set("forbidden", pathname);
+      return NextResponse.redirect(url);
+    }
   }
   return NextResponse.next();
 }

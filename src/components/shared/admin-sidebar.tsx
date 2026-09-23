@@ -16,9 +16,9 @@ const NAV_GROUPS = [
   {
     label: "People",
     items: [
-      { href: "/admin/members", label: "Members", perm: "members.read" },
-      { href: "/admin/staff", label: "Staff", perm: "staff.read" },
-      { href: "/admin/roles", label: "Roles", perm: "roles.read" },
+      { href: "/admin/users", label: "Members", perm: "members.read" },
+      { href: "/admin/users/staff", label: "Staff", perm: "staff.read" },
+      { href: "/admin/users/roles", label: "Roles", perm: "roles.read" },
     ],
   },
   {
