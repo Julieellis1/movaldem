@@ -17,5 +17,5 @@ export function decryptSecret(payload: string): string {
 export function maskSecret(payload: string | null): string {
   if (!payload) return "";
   const plain = decryptSecret(payload);
-  return `${plain.slice(0, 8)}â€¢â€¢â€¢â€¢${plain.slice(-4)}`;
+  return `${plain.slice(0, 8)}••••${plain.slice(-4)}`;
 }

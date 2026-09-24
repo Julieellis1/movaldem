@@ -157,3 +157,59 @@ export async function seedMember(_page: Page): Promise<{ id: string; name: strin
   const body = (await res.json()) as { user: { id: string } };
   return { id: body.user.id, name, email };
 }
+
+/**
+ * Compile the settings + audit-logs routes ahead of the e2e clock.
+ *
+ * Middleware redirects unauthenticated GETs before Next.js ever compiles the
+ * page, so an anonymous warm-up is useless. This signs a super_admin in over
+ * HTTP and hits the pages with that session. The save API is warmed with an
+ * empty JSON change list, which compiles the route without writing anything.
+ */
+export async function warmSettingsRoutes(): Promise<void> {
+  const email = `warm-settings-${Date.now()}@e2e.test`;
+  const password = "strong-pass-1";
+  const res = await fetch(`${BASE}/api/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      full_name: "Warm Settings",
+      email,
+      password,
+      confirmPassword: password,
+      consent: true,
+    }),
+    signal: AbortSignal.timeout(180_000),
+  });
+  if (!res.ok) return;
+  const { user } = (await res.json()) as { user: { id: string } };
+
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    const roles = await pool.query(`SELECT id FROM roles WHERE key = $1`, ["super_admin"]);
+    await pool.query(
+      `INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [user.id, roles.rows[0].id],
+    );
+  } finally {
+    await pool.end();
+  }
+
+  const login = await fetch(`${BASE}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+    signal: AbortSignal.timeout(180_000),
+  });
+  const cookie = (login.headers.getSetCookie?.() ?? []).map((c) => c.split(";")[0]).join("; ");
+  if (!cookie) return;
+
+  await warm("/login");
+  await warm("/admin/settings", { headers: { cookie } });
+  await warm("/admin/audit-logs", { headers: { cookie } });
+  await warm("/api/admin/settings", {
+    method: "POST",
+    headers: { cookie, "Content-Type": "application/json" },
+    body: JSON.stringify({ changes: [] }),
+  });
+}
