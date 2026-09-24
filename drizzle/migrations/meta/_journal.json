@@ -22,6 +22,13 @@
       "when": 1790006657744,
       "tag": "0002_white_wendell_rand",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790223627086,
+      "tag": "0003_clean_scalphunter",
+      "breakpoints": true
     }
   ]
 }

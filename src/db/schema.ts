@@ -1,5 +1,5 @@
 import { pgTable, pgEnum, uuid, text, timestamp, boolean, integer, jsonb, primaryKey, index,
-  uniqueIndex } from "drizzle-orm/pg-core";
+  uniqueIndex, date } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const userStatus = pgEnum("user_status", ["active", "suspended", "deactivated"]);
@@ -165,3 +165,198 @@ export const notifications = pgTable("notifications", {
 }, (t) => ({
   statusIdx: index("notifications_status_idx").on(t.status, t.created_at),
 }));
+
+// ---- Phase 2: teaching content (PRD 09 §4-5; 05 §1-9) ----
+
+export const mediaKind = pgEnum("media_kind", ["image", "audio", "video", "document", "external_video"]);
+export const mediaSource = pgEnum("media_source", ["uploaded", "external_url"]);
+export const seriesType = pgEnum("series_type", ["sermon", "bible_study", "sunday_school"]);
+export const contentCategoryType = pgEnum("content_category_type", ["sermon", "bible_study"]);
+export const contentStatus = pgEnum("content_status", ["draft", "review", "scheduled", "published", "archived"]);
+
+export const media = pgTable("media", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  kind: mediaKind("kind").notNull(),
+  source: mediaSource("source").notNull().default("uploaded"),
+  title: text("title"),
+  alt_text: text("alt_text"),
+  original_filename: text("original_filename"),
+  storage_key: text("storage_key"),
+  external_url: text("external_url"),
+  public_url: text("public_url").notNull(),
+  mime_type: text("mime_type"),
+  size_bytes: integer("size_bytes"),
+  duration_seconds: integer("duration_seconds"),
+  width: integer("width"),
+  height: integer("height"),
+  uploaded_by: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  deleted_at: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => ({
+  kindIdx: index("media_kind_idx").on(t.kind),
+  uploaderIdx: index("media_uploader_idx").on(t.uploaded_by),
+}));
+
+export const series = pgTable("series", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  type: seriesType("type").notNull(),
+  title: text("title").notNull(),
+  slug: text("slug").notNull(),
+  description: text("description"),
+  cover_media_id: uuid("cover_media_id").references(() => media.id, { onDelete: "set null" }),
+  start_date: date("start_date"),
+  end_date: date("end_date"),
+  sort_order: integer("sort_order").notNull().default(0),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  typeSlugIdx: uniqueIndex("series_type_slug_unique").on(t.type, t.slug),
+}));
+
+export const contentCategories = pgTable("content_categories", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  type: contentCategoryType("type").notNull(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull(),
+  sort_order: integer("sort_order").notNull().default(0),
+  is_active: boolean("is_active").notNull().default(true),
+}, (t) => ({
+  typeSlugIdx: uniqueIndex("content_categories_type_slug_unique").on(t.type, t.slug),
+}));
+
+export const tags = pgTable("tags", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+});
+
+export const taggables = pgTable("taggables", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tag_id: uuid("tag_id").notNull().references(() => tags.id, { onDelete: "cascade" }),
+  taggable_type: text("taggable_type").notNull(),
+  taggable_id: uuid("taggable_id").notNull(),
+}, (t) => ({
+  tagTargetIdx: uniqueIndex("taggables_tag_target_unique").on(t.tag_id, t.taggable_type, t.taggable_id),
+  targetIdx: index("taggables_target_idx").on(t.taggable_type, t.taggable_id),
+}));
+
+export const sermons = pgTable("sermons", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: text("title").notNull(),
+  slug: text("slug").notNull().unique(),
+  description: text("description"),
+  featured_media_id: uuid("featured_media_id").references(() => media.id, { onDelete: "set null" }),
+  audio_media_id: uuid("audio_media_id").references(() => media.id, { onDelete: "set null" }),
+  video_media_id: uuid("video_media_id").references(() => media.id, { onDelete: "set null" }),
+  document_media_id: uuid("document_media_id").references(() => media.id, { onDelete: "set null" }),
+  download_enabled: boolean("download_enabled").notNull().default(true),
+  series_id: uuid("series_id").references(() => series.id, { onDelete: "set null" }),
+  category_id: uuid("category_id").references(() => contentCategories.id, { onDelete: "set null" }),
+  is_featured: boolean("is_featured").notNull().default(false),
+  status: contentStatus("status").notNull().default("draft"),
+  published_at: timestamp("published_at", { withTimezone: true }),
+  seo_title: text("seo_title"),
+  seo_description: text("seo_description"),
+  og_media_id: uuid("og_media_id").references(() => media.id, { onDelete: "set null" }),
+  preacher: text("preacher").notNull(),
+  sermon_date: date("sermon_date").notNull(),
+  scripture_reference: text("scripture_reference"),
+  created_by: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  updated_by: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deleted_at: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => ({
+  statusIdx: index("sermons_status_published_idx").on(t.status, t.published_at),
+  seriesIdx: index("sermons_series_idx").on(t.series_id),
+  categoryIdx: index("sermons_category_idx").on(t.category_id),
+}));
+
+export const bibleStudies = pgTable("bible_studies", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: text("title").notNull(),
+  slug: text("slug").notNull().unique(),
+  description: text("description"),
+  featured_media_id: uuid("featured_media_id").references(() => media.id, { onDelete: "set null" }),
+  audio_media_id: uuid("audio_media_id").references(() => media.id, { onDelete: "set null" }),
+  video_media_id: uuid("video_media_id").references(() => media.id, { onDelete: "set null" }),
+  document_media_id: uuid("document_media_id").references(() => media.id, { onDelete: "set null" }),
+  download_enabled: boolean("download_enabled").notNull().default(true),
+  series_id: uuid("series_id").references(() => series.id, { onDelete: "set null" }),
+  category_id: uuid("category_id").references(() => contentCategories.id, { onDelete: "set null" }),
+  is_featured: boolean("is_featured").notNull().default(false),
+  status: contentStatus("status").notNull().default("draft"),
+  published_at: timestamp("published_at", { withTimezone: true }),
+  seo_title: text("seo_title"),
+  seo_description: text("seo_description"),
+  og_media_id: uuid("og_media_id").references(() => media.id, { onDelete: "set null" }),
+  teacher: text("teacher").notNull(),
+  study_date: date("study_date").notNull(),
+  scripture_reference: text("scripture_reference"),
+  lesson_number: integer("lesson_number"),
+  created_by: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  updated_by: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deleted_at: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => ({
+  statusIdx: index("bible_studies_status_published_idx").on(t.status, t.published_at),
+  seriesIdx: index("bible_studies_series_idx").on(t.series_id),
+  categoryIdx: index("bible_studies_category_idx").on(t.category_id),
+}));
+
+export const sundaySchoolLessons = pgTable("sunday_school_lessons", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: text("title").notNull(),
+  slug: text("slug").notNull().unique(),
+  description: text("description"),
+  featured_media_id: uuid("featured_media_id").references(() => media.id, { onDelete: "set null" }),
+  audio_media_id: uuid("audio_media_id").references(() => media.id, { onDelete: "set null" }),
+  video_media_id: uuid("video_media_id").references(() => media.id, { onDelete: "set null" }),
+  document_media_id: uuid("document_media_id").references(() => media.id, { onDelete: "set null" }),
+  download_enabled: boolean("download_enabled").notNull().default(true),
+  series_id: uuid("series_id").notNull().references(() => series.id, { onDelete: "restrict" }),
+  category_id: uuid("category_id").references(() => contentCategories.id, { onDelete: "set null" }),
+  is_featured: boolean("is_featured").notNull().default(false),
+  status: contentStatus("status").notNull().default("draft"),
+  published_at: timestamp("published_at", { withTimezone: true }),
+  seo_title: text("seo_title"),
+  seo_description: text("seo_description"),
+  og_media_id: uuid("og_media_id").references(() => media.id, { onDelete: "set null" }),
+  lesson_number: integer("lesson_number").notNull(),
+  lesson_date: date("lesson_date").notNull(),
+  topic: text("topic").notNull(),
+  memory_verse: text("memory_verse"),
+  introduction: text("introduction"),
+  teacher: text("teacher"),
+  created_by: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  updated_by: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deleted_at: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => ({
+  statusIdx: index("sunday_school_status_published_idx").on(t.status, t.published_at),
+  seriesIdx: index("sunday_school_series_idx").on(t.series_id),
+  seriesLessonIdx: uniqueIndex("sunday_school_series_lesson_unique").on(t.series_id, t.lesson_number),
+}));
+
+export const mediaDownloads = pgTable("media_downloads", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  content_type: text("content_type").notNull(),
+  content_id: uuid("content_id").notNull(),
+  media_id: uuid("media_id").notNull().references(() => media.id, { onDelete: "restrict" }),
+  user_id: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  ip_hash: text("ip_hash"),
+  user_agent: text("user_agent"),
+  downloaded_at: timestamp("downloaded_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  contentIdx: index("media_downloads_content_idx").on(t.content_type, t.content_id),
+  dateIdx: index("media_downloads_date_idx").on(t.downloaded_at),
+}));
+
+export const redirects = pgTable("redirects", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  from_path: text("from_path").notNull().unique(),
+  to_path: text("to_path").notNull(),
+  status_code: integer("status_code").notNull().default(301),
+});

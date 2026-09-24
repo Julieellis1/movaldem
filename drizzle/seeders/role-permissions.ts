@@ -4,7 +4,7 @@ import type { RoleKey } from "./roles";
 export const ROLE_MATRIX: Record<RoleKey, string[]> = {
   member: [],
   content_manager: [
-    "sermons.*", "bible_studies.*", "sunday_school.*", "series.*", "events.*",
+    "sermons.*", "bible_studies.*", "sunday_school.*", "series.*", "content_categories.*", "tags.*", "events.*",
     "programmes.*", "gallery.create", "gallery.read", "gallery.update", "gallery.delete",
     "media.*", "pages.create", "pages.read", "pages.update",
   ],
@@ -15,7 +15,7 @@ export const ROLE_MATRIX: Record<RoleKey, string[]> = {
     "quiz_reports.*", "settings.read", "settings.update",
   ],
   admin: [
-    "sermons.*", "bible_studies.*", "sunday_school.*", "series.*", "events.*", "programmes.*",
+    "sermons.*", "bible_studies.*", "sunday_school.*", "series.*", "content_categories.*", "tags.*", "events.*", "programmes.*",
     "gallery.*", "media.*", "pages.*",
     "quiz_categories.*", "questions.*", "quizzes.*", "quiz_imports.*",
     "attempts.read", "attempts.cancel", "leaderboards.read", "leaderboards.recalculate", "quiz_reports.*",

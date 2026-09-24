@@ -9,6 +9,11 @@ const NAV_GROUPS = [
     label: "Content",
     items: [
       { href: "/admin/sermons", label: "Sermons", perm: "sermons.read" },
+      { href: "/admin/bible-studies", label: "Bible studies", perm: "bible_studies.read" },
+      { href: "/admin/sunday-school", label: "Sunday school", perm: "sunday_school.read" },
+      { href: "/admin/series", label: "Series", perm: "series.read" },
+      { href: "/admin/categories", label: "Categories", perm: "content_categories.read" },
+      { href: "/admin/media", label: "Media library", perm: "media.read" },
       { href: "/admin/quizzes", label: "Quizzes", perm: "quizzes.read" },
       { href: "/admin/questions", label: "Questions", perm: "questions.read" },
     ],

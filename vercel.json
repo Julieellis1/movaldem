@@ -1,3 +1,6 @@
 {
-  "crons": [{ "path": "/api/cron/process-notifications", "schedule": "* * * * *" }]
+  "crons": [
+    { "path": "/api/cron/process-notifications", "schedule": "* * * * *" },
+    { "path": "/api/cron/publish-scheduled", "schedule": "*/5 * * * *" }
+  ]
 }

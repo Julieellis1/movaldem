@@ -1,5 +1,5 @@
 export const RESOURCES = [
-  "sermons", "bible_studies", "sunday_school", "series", "events", "programmes",
+  "sermons", "bible_studies", "sunday_school", "series", "content_categories", "tags", "events", "programmes",
   "gallery", "media", "pages", "quiz_categories", "questions", "quizzes",
   "quiz_imports", "attempts", "leaderboards", "quiz_reports", "projects",
   "transactions", "giving_reports", "members", "staff", "roles",
