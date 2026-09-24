@@ -213,9 +213,24 @@ export async function inviteStaff(input: {
   const inviteUrl = `${env().APP_URL}/accept-invite?token=${rawToken}`;
 
   await db.transaction(async (tx) => {
+    // The account is provisioned now and the role assigned up front: the
+    // invitee is visible in the staff table immediately, and accepting the
+    // invite only has to prove email ownership and set a password.
+    const [existing] = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(sql`lower(${users.email}) = ${email}`);
+    const userId = existing?.id ?? (await tx.insert(users).values({
+      full_name: email.split("@")[0] || "Invited staff",
+      email,
+    }).returning({ id: users.id }))[0].id;
+
+    await tx.insert(userRoles).values({ user_id: userId, role_id: role.id, assigned_by: input.actorId }).onConflictDoNothing();
+
     const [token] = await tx
       .insert(authTokens)
       .values({
+        user_id: userId,
         identifier: email,
         type: "staff_invite",
         token_hash: tokenHash,
@@ -234,7 +249,7 @@ export async function inviteStaff(input: {
       action: "staff.invite",
       entity_type: "auth_tokens",
       entity_id: token.id,
-      changes: { email, role: input.roleKey },
+      changes: { email, role: input.roleKey, user_id: userId },
     });
   });
 }

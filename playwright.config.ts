@@ -21,7 +21,9 @@ export default defineConfig({
     use: { browserName: "chromium", channel: "chromium" },
   }],
   webServer: {
-    command: "pnpm dev",
+    // CI runs `pnpm build` before e2e, so serve the production bundle there;
+    // locally `next dev` avoids a build step in the inner loop.
+    command: process.env.CI ? "pnpm start" : "pnpm dev",
     // `port` (TCP connect) rather than `url`: `/` 307-redirects to /login,
     // which 404s until Task 19, so an HTTP probe would never see 2xx.
     port: 3000,

@@ -49,15 +49,19 @@ export default defineConfig({
   plugins: [jsx],
   test: {
     include: ["tests/**/*.test.ts"],
+    // Fail fast with an actionable message when the integration DB env is
+    // missing, instead of a confusing "nonexistent host" from the driver.
+    setupFiles: ["./tests/integration/setup.ts"],
     // The suite's first tests in each fork pay for the cold module graph
     // (Next.js runtime, drizzle, better-auth), which alone can exceed the 5s
     // default on slower machines. Integration tests also hit a remote Neon DB.
     testTimeout: 30000,
     // Integration tests share one Neon DB, so parallel file workers race on
-    // the same rows (e.g. the queue worker would send the notifications
-    // test's row). Single-fork keeps every file sequential.
+    // the same rows: the queue worker drains the notifications another file
+    // just enqueued, and the audit log is append-only. `singleFork` is a no-op
+    // in Vitest 5, so serial execution is requested explicitly here.
     pool: "forks",
-    singleFork: true,
+    fileParallelism: false,
   },
   resolve: {
     alias: {

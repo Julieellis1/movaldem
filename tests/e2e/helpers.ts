@@ -134,7 +134,7 @@ async function expectValue(locator: ReturnType<Page["getByLabel"]>, expected: st
  * Register a plain member (no staff role) through the public API so admin
  * pages have someone to list, search and suspend.
  */
-export async function seedMember(_page: Page): Promise<{ id: string; name: string; email: string }> {
+export async function seedMember(_page?: Page): Promise<{ id: string; name: string; email: string }> {
   await warmDevRoutes();
   const name = `Grace ${Date.now().toString(36)}`;
   const email = `grace-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@e2e.test`;
@@ -212,4 +212,81 @@ export async function warmSettingsRoutes(): Promise<void> {
     headers: { cookie, "Content-Type": "application/json" },
     body: JSON.stringify({ changes: [] }),
   });
+}
+
+/** Sign an existing account in through the UI. */
+export async function login(page: Page, email: string, password: string): Promise<void> {
+  await warmDevRoutes();
+  await page.goto("/login");
+  const submit = page.getByRole("button", { name: /sign in/i });
+  await submit.waitFor({ state: "visible", timeout: 60_000 });
+  const emailInput = page.getByLabel(/email/i);
+  const passwordInput = page.getByLabel(/^password/i);
+  await emailInput.fill(email);
+  await passwordInput.fill(password);
+  await expectValue(emailInput, email);
+  await expectValue(passwordInput, password);
+
+  const response = page.waitForResponse(
+    (r) => r.url().includes("/api/auth/login") && r.request().method() === "POST",
+    { timeout: 90_000 },
+  );
+  await submit.click();
+  const res = await response;
+  if (!res.ok()) {
+    throw new Error(`login failed: ${res.status()} ${await res.text().catch(() => "")}`);
+  }
+  await page.waitForFunction(
+    () => !window.location.pathname.startsWith("/login"),
+    undefined,
+    { timeout: 60_000 },
+  );
+}
+
+/**
+ * Read the staff-invite URL out of the notifications outbox — the queue is the
+ * only delivery path in e2e, so the test pulls the link the worker would send.
+ */
+export async function readOutboxLink(recipient: string): Promise<string> {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    // Poll rather than read once: the queueing happens in a server action whose
+    // commit is not observable from the browser click that triggered it.
+    const deadline = Date.now() + 60_000;
+    for (;;) {
+      const { rows } = await pool.query<{ payload: unknown }>(
+        `SELECT payload FROM notifications
+          WHERE recipient = $1 AND type = 'staff_invite'
+          ORDER BY created_at DESC LIMIT 1`,
+        [recipient.toLowerCase()],
+      );
+      // The driver may hand jsonb back as an object or as its text form.
+      const raw = rows[0]?.payload;
+      const payload = (typeof raw === "string" ? JSON.parse(raw) : raw) as { url?: string } | undefined;
+      if (payload?.url) return payload.url;
+      if (Date.now() > deadline) break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    throw new Error(`no staff_invite notification for ${recipient}`);
+  } finally {
+    await pool.end();
+  }
+}
+
+/** Count seeded roles and how many permissions super_admin holds (S1). */
+export async function readSeedShape(): Promise<{ roleKeys: string[]; superAdminPermissions: number }> {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    const rolesRes = await pool.query<{ key: string }>(`SELECT key FROM roles ORDER BY key`);
+    const permsRes = await pool.query<{ c: string }>(
+      `SELECT count(*)::text AS c FROM role_permissions rp
+         JOIN roles r ON r.id = rp.role_id WHERE r.key = 'super_admin'`,
+    );
+    return {
+      roleKeys: rolesRes.rows.map((r) => r.key),
+      superAdminPermissions: Number(permsRes.rows[0]?.c ?? 0),
+    };
+  } finally {
+    await pool.end();
+  }
 }

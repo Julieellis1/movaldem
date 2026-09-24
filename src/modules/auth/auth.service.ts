@@ -1,9 +1,11 @@
 import { auth } from "./auth.config";
 import { db } from "@/db/client";
-import { users, sessions } from "@/db/schema";
-import { and, eq, isNull } from "drizzle-orm";
+import { users, sessions, accounts, authTokens } from "@/db/schema";
+import { and, eq, gt, isNull } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import { auditLog } from "@/modules/platform/audit/audit.service";
 import { rateLimit, rateLimitKey, RateLimitError } from "@/lib/ratelimit";
+import { hashPassword } from "./password";
 import { registerSchema } from "./schemas";
 
 // Server-owned registration: validates consent/phone/password, creates the
@@ -151,6 +153,73 @@ export async function restoreUser(id: string, ctx: { actorId: string; ip: string
     await auditLog(tx, {
       actor_user_id: ctx.actorId, action: "user.restore",
       entity_type: "users", entity_id: id, ip: ctx.ip,
+    });
+  });
+}
+
+/**
+ * Staff-invite acceptance (USR-03).
+ *
+ * The account and its role are already provisioned by `inviteStaff`; accepting
+ * proves the invitee controls the mailbox and sets their password. The raw token
+ * is never stored — only its SHA-256 — and a token is single-use: the `used_at`
+ * write and the credential insert share one transaction.
+ */
+export async function findValidStaffInvite(token: string) {
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const [row] = await db
+    .select({ id: authTokens.id, email: authTokens.identifier, userId: authTokens.user_id })
+    .from(authTokens)
+    .where(
+      and(
+        eq(authTokens.token_hash, tokenHash),
+        eq(authTokens.type, "staff_invite"),
+        isNull(authTokens.used_at),
+        gt(authTokens.expires_at, new Date()),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+export async function acceptStaffInvite(token: string, password: string) {
+  // SEC-05: 10/hour per invite token, checked before the token is read so an
+  // expired/replayed token cannot be probed for validity by brute force.
+  if (!(await rateLimit(rateLimitKey("staff-invite:accept", [token]), { limit: 10, window: "60 m" })).success) {
+    throw new RateLimitError();
+  }
+  const invite = await findValidStaffInvite(token);
+  if (!invite || !invite.userId) throw new Error("This invitation is invalid or has expired");
+  // Narrowed outside the transaction closure: property narrowing does not
+  // survive into a callback, which would leave `userId` as string | null.
+  const userId = invite.userId;
+
+  const hashed = await hashPassword(password);
+  await db.transaction(async (tx) => {
+    // Single-use: the conditional update only fires while used_at is still null,
+    // so a concurrent second request inserts no credential.
+    const [claimed] = await tx
+      .update(authTokens)
+      .set({ used_at: new Date() })
+      .where(and(eq(authTokens.id, invite.id), isNull(authTokens.used_at)))
+      .returning({ id: authTokens.id });
+    if (!claimed) throw new Error("This invitation is invalid or has expired");
+
+    await tx.insert(accounts).values({
+      user_id: userId,
+      account_id: userId,
+      provider_id: "credential",
+      password: hashed,
+    });
+    // Possession of the emailed link verifies the mailbox (AUTH-03).
+    await tx.update(users)
+      .set({ email_verified: true, email_verified_at: new Date(), status: "active" })
+      .where(eq(users.id, userId));
+    await auditLog(tx, {
+      action: "staff.invite_accept",
+      entity_type: "users",
+      entity_id: userId,
+      changes: { via: "staff_invite_token" },
     });
   });
 }

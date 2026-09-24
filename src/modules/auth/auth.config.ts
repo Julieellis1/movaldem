@@ -11,6 +11,10 @@ import { enqueueNotification } from "@/modules/platform/notifications/notificati
 
 export const auth = betterAuth({
   baseURL: env().APP_URL,
+  // Without an explicit secret better-auth falls back to a hard-coded default
+  // and logs an error on every production build/page render. APP_SECRET is
+  // already a validated 32+ char env var, so reuse it (SEC-01).
+  secret: env().APP_SECRET,
   database: drizzleAdapter(db, {
     provider: "pg",
     // The schema-check and model resolution address tables by their *key* in

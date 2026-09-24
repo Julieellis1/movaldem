@@ -1,5 +1,5 @@
-import { renderToStaticMarkup } from "react-dom/server";
 import StaffInviteTemplate from "./staff-invite-template";
+import { renderToStaticMarkup } from "./render";
 
 export function renderStaffInvite(props: { url: string; name: string; role: string; inviter: string }) {
   const html = renderToStaticMarkup(<StaffInviteTemplate {...props} />);

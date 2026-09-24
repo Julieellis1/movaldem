@@ -74,7 +74,10 @@ function ResetPasswordForm({ token }: { token: string }) {
   );
 }
 
-export default function ResetPasswordPage() {
+// `useSearchParams` forces a client bailout, so it must live in a child that
+// is rendered *inside* the Suspense boundary — reading it in the page
+// component itself fails the production build.
+function ResetPasswordContent() {
   const searchParams = useSearchParams();
   // better-auth 1.7 puts the token in the path (/reset-password/<token>);
   // also accept ?token= for the redirectTo form.
@@ -87,9 +90,13 @@ export default function ResetPasswordPage() {
     if (idx >= 0 && segment[idx + 1]) setPathToken(decodeURIComponent(segment[idx + 1]));
   }, []);
 
+  return <ResetPasswordForm token={queryToken ?? pathToken ?? ""} />;
+}
+
+export default function ResetPasswordPage() {
   return (
     <React.Suspense>
-      <ResetPasswordForm token={queryToken ?? pathToken ?? ""} />
+      <ResetPasswordContent />
     </React.Suspense>
   );
 }
