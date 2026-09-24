@@ -3,6 +3,7 @@ import { db } from "@/db/client";
 import { users, sessions } from "@/db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import { auditLog } from "@/modules/platform/audit/audit.service";
+import { rateLimit, rateLimitKey, RateLimitError } from "@/lib/ratelimit";
 import { registerSchema } from "./schemas";
 
 // Server-owned registration: validates consent/phone/password, creates the
@@ -12,11 +13,17 @@ export async function registerMember(input: {
   full_name: string; email: string; phone?: string; password: string;
   confirmPassword: string; church?: string; age_range?: string; gender?: string; consent: boolean;
 }, ctx: { ip?: string | null; userAgent?: string | null; headers?: Headers } = {}) {
+  const email = typeof input.email === "string" ? input.email.toLowerCase().trim() : "";
+  // SEC-05: 5/hour per IP (or per email when the caller has no IP, e.g. server
+  // actions / vitest) — checked before anything writes a user or queues mail.
+  const ip = ctx.ip?.trim() || null;
+  const key = ip ? rateLimitKey("register:ip", [ip]) : rateLimitKey("register:email", [email]);
+  if (!(await rateLimit(key, { limit: 5, window: "60 m" })).success) throw new RateLimitError();
   const parsed = registerSchema.parse(input); // throws on consent / phone / password mismatch
-  const email = parsed.email.toLowerCase().trim();
+  const parsedEmail = parsed.email.toLowerCase().trim();
   const res = await auth.api.signUpEmail({
     body: {
-      email, password: parsed.password, name: parsed.full_name,
+      email: parsedEmail, password: parsed.password, name: parsed.full_name,
       phone: parsed.phone, church: parsed.church, age_range: parsed.age_range, gender: parsed.gender,
     },
     headers: ctx.headers,
@@ -51,6 +58,17 @@ export async function loginMember(
   ctx: { ip?: string | null; headers?: Headers } = {},
 ) {
   const email = input.email.toLowerCase().trim();
+  // SEC-06: 5/minute per IP *and* per email. The check runs before the user
+  // lookup so a rate-limited response can never reveal whether the account
+  // exists — a blocked unknown email answers identically to a blocked real
+  // one. Callers without an IP (server actions, Playwright, vitest) keep the
+  // per-email bucket only.
+  const ip = ctx.ip?.trim() || null;
+  const keys = [rateLimitKey("login:email", [email])];
+  if (ip) keys.push(rateLimitKey("login:ip", [ip]));
+  for (const key of keys) {
+    if (!(await rateLimit(key, { limit: 5, window: "60 s" })).success) throw new RateLimitError();
+  }
   const [row] = await db.select().from(users).where(eq(users.email, email));
   if (row && row.status !== "active") {
     await revokeAllSessions(row.id);
@@ -91,8 +109,15 @@ export async function revokeAllSessions(userId: string) {
 // calls our auth.config `sendResetPassword` callback (which enqueues the email)
 // only when the email exists — a generic outcome either way (AUTH-05/SEC-09).
 export async function requestPasswordReset(email: string) {
+  // SEC-05/09: 3/hour per email, checked first so a rate-limited call returns
+  // before better-auth does any existence-dependent work — the caller always
+  // observes the same generic outcome, never a signal the account exists.
+  const normalized = email.toLowerCase().trim();
+  if (!(await rateLimit(rateLimitKey("reset:email", [normalized]), { limit: 3, window: "60 m" })).success) {
+    throw new RateLimitError();
+  }
   await auth.api.requestPasswordReset({
-    body: { email: email.toLowerCase().trim(), redirectTo: "/reset-password" },
+    body: { email: normalized, redirectTo: "/reset-password" },
   });
 }
 

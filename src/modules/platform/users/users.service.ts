@@ -13,6 +13,7 @@ import {
 
 type UserStatus = (typeof users)["$inferSelect"]["status"];
 import { env } from "@/lib/env";
+import { rateLimit, rateLimitKey, RateLimitError } from "@/lib/ratelimit";
 import { auditLog } from "@/modules/platform/audit/audit.service";
 import { enqueueNotification } from "@/modules/platform/notifications/notifications.service";
 
@@ -194,6 +195,15 @@ export async function inviteStaff(input: {
   roleKey: string;
   actorId: string | null;
 }): Promise<void> {
+  // SEC-05: 10/hour per admin, enforced before any token is written, mail
+  // queued or audit row recorded — the invite never partially completes. A
+  // missing actorId falls back to a single anonymous bucket rather than no
+  // limit at all (requirePermission makes that path unreachable in practice).
+  if (
+    !(await rateLimit(rateLimitKey("staff-invite:actor", [input.actorId]), { limit: 10, window: "60 m" })).success
+  ) {
+    throw new RateLimitError();
+  }
   const email = input.email.toLowerCase().trim();
   const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.key, input.roleKey));
   if (!role) throw new Error(`Unknown role: ${input.roleKey}`);
