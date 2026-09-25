@@ -1,6 +1,4 @@
 {
-  "crons": [
-    { "path": "/api/cron/process-notifications", "schedule": "* * * * *" },
-    { "path": "/api/cron/publish-scheduled", "schedule": "*/5 * * * *" }
-  ]
+  "$comment": "No Vercel Crons: Hobby plan allows daily-only schedules, but the email outbox and the publish scheduler need minute-level cadence. Both endpoints are triggered by an external scheduler (cron-job.org) — see docs/ASSUMPTIONS.md C15. Re-add a crons block only on Pro.",
+  "crons": []
 }

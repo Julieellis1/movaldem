@@ -203,3 +203,17 @@ staff roles (`super_admin`, `admin`, `content_manager`, `quiz_manager`) go to
 the Phase 3 homepage; guests go to `/login`. Staff membership is checked by
 explicit role keys, not permission count, so future member permissions cannot
 promote anyone by accident.
+
+### C15: Background jobs run on an external scheduler, not Vercel Cron
+
+**Conflict:** the email outbox worker needs ~1-minute cadence and the publish
+scheduler ~5-minute cadence, but the Vercel Hobby plan rejects any cron
+schedule running more than once per day ("Hobby accounts are limited to daily
+cron jobs").
+
+**Resolution:** `vercel.json` ships an empty `crons` array so Hobby deploys
+pass. Both endpoints are triggered by cron-job.org (free tier) with
+`Authorization: Bearer $CRON_SECRET`:
+`POST /api/cron/process-notifications` every minute,
+`POST /api/cron/publish-scheduled` every 5 minutes.
+Re-introduce native Vercel Crons only if the project moves to Pro.
