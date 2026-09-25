@@ -188,3 +188,18 @@ JSON where the app should be.
 the shell. Route permissions are matched most-specific-first, because
 `pathname.startsWith("/admin/users")` is also true for `/admin/users/staff` and
 would otherwise shadow the staff and roles rules.
+
+### C14: Post-login landing for staff vs members
+
+**Conflict:** the login form pushes `redirect ?? "/"` after a successful
+sign-in, but `/` unconditionally redirected to `/login` (Phase 1 placeholder
+for the Phase 3 homepage) — so every staff sign-in looped back to the login
+page with a success toast. No role-aware landing existed, and the member
+dashboard only arrives in Phase 5.
+
+**Resolution:** `/` dispatches by audience (`src/modules/auth/home-target.ts`):
+staff roles (`super_admin`, `admin`, `content_manager`, `quiz_manager`) go to
+`/admin`; authenticated members go to `/sermons` as a placeholder home until
+the Phase 3 homepage; guests go to `/login`. Staff membership is checked by
+explicit role keys, not permission count, so future member permissions cannot
+promote anyone by accident.
