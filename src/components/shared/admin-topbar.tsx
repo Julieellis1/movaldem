@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Menu } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 
 export function AdminTopbar({
@@ -18,7 +19,13 @@ export function AdminTopbar({
   const router = useRouter();
 
   async function signOut() {
-    await fetch("/api/auth/sign-out", { method: "POST" });
+    try {
+      const res = await fetch("/api/auth/sign-out", { method: "POST" });
+      if (!res.ok) throw new Error(`sign-out answered ${res.status}`);
+    } catch {
+      toast.error("Sign-out failed. Please try again.");
+      return;
+    }
     router.push("/login");
     router.refresh();
   }
