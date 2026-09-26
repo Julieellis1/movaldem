@@ -56,7 +56,6 @@ export function SitePagesEditor({ canUpdate }: { canUpdate: boolean }) {
 
   React.useEffect(() => {
     void load(key);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
   React.useEffect(() => {

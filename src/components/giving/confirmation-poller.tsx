@@ -20,7 +20,6 @@ export function ConfirmationPoller({ reference }: { reference: string }) {
 
   React.useEffect(() => {
     let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | undefined;
     const started = Date.now();
 
     const fetchStatus = async () => {
@@ -31,7 +30,7 @@ export function ConfirmationPoller({ reference }: { reference: string }) {
         );
         if (res.status === 404) {
           if (!cancelled) {
-            if (timer) clearInterval(timer);
+            clearInterval(timer);
             setError("We could not find this transaction.");
           }
           return;
@@ -41,8 +40,8 @@ export function ConfirmationPoller({ reference }: { reference: string }) {
         if (!data.status) throw new Error("empty status");
         if (cancelled) return;
         setStatus(data.status);
-        if (TERMINAL.has(data.status) && timer) clearInterval(timer);
-        else if (Date.now() - started > POLL_TIMEOUT_MS && timer) {
+        if (TERMINAL.has(data.status)) clearInterval(timer);
+        else if (Date.now() - started > POLL_TIMEOUT_MS) {
           clearInterval(timer);
         }
       } catch {
@@ -50,11 +49,11 @@ export function ConfirmationPoller({ reference }: { reference: string }) {
       }
     };
 
+    const timer: ReturnType<typeof setInterval> = setInterval(() => void fetchStatus(), POLL_MS);
     void fetchStatus();
-    timer = setInterval(() => void fetchStatus(), POLL_MS);
     return () => {
       cancelled = true;
-      if (timer) clearInterval(timer);
+      clearInterval(timer);
     };
   }, [reference]);
 

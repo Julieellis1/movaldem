@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { and, asc, eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { getCurrentSession } from "@/lib/server-session";
 import { requirePermission } from "@/modules/auth/rbac.service";
 import { db } from "@/db/client";
