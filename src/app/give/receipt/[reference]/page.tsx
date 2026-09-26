@@ -53,7 +53,7 @@ function signedTokenOk(
   }
 }
 
-export function receiptQueryString(
+function receiptQueryString(
   sp: Record<string, string | string[] | undefined>,
 ): string {
   const exp = firstParam(sp.exp);
