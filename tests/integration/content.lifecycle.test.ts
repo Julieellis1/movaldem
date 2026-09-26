@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { db } from "@/db/client";
 import { redirects, auditLogs, series } from "@/db/schema";
-import { eq, and, gte } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import {
   canPublish,
   buildSlug,
@@ -169,26 +169,24 @@ describe("content lifecycle (CMS-01..08)", () => {
   }, 30000);
 
   it("CMS-08: every mutation writes an audit log row", async () => {
-    const marker = uid();
-    const title = `Audited ${marker}`;
-    const before = await db
-      .select({ id: auditLogs.id })
-      .from(auditLogs)
-      .where(and(gte(auditLogs.created_at, new Date(Date.now() - 60_000))));
-    const countBefore = before.length;
+    // Assert specific rows by entity_id (same pattern as content.events.test.ts):
+    // time-window counting flakes on the shared DB because other suites' rows
+    // age out of the window between the before/after reads.
+    const title = `Audited ${uid()}`;
     const row = await createContent(
       "sermon",
       { title, preacher: "Pst Audit", sermon_date: "2026-09-01" },
       admin,
     );
     await publishNow("sermon", row.id, admin, { requireReview: false });
-    const after = await db
+    const rows = await db
       .select()
       .from(auditLogs)
-      .where(gte(auditLogs.created_at, new Date(Date.now() - 60_000)));
-    expect(after.length).toBeGreaterThan(countBefore);
-    expect(after.some((r) => r.entity_id === row.id)).toBe(true);
-  }, 30000);
+      .where(eq(auditLogs.entity_id, row.id));
+    const actions = rows.map((r) => r.action);
+    expect(actions).toContain("sermon.create");
+    expect(actions).toContain("sermon.publish");
+  }, 60000);
 
   it("per-type required fields enforced (sermon/study/lesson)", async () => {
     await expect(

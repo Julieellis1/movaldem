@@ -360,3 +360,152 @@ export const redirects = pgTable("redirects", {
   to_path: text("to_path").notNull(),
   status_code: integer("status_code").notNull().default(301),
 });
+
+// ---- Phase 3: events, programmes, gallery, site pages (PRD 09 §5; 05 §10-13) ----
+// Times stored as text "HH:MM" and interpreted in Africa/Lagos at display
+// (avoids timestamptz pitfalls for wall-clock event times).
+
+export const contactMessageStatus = pgEnum("contact_message_status", ["new", "read", "archived"]);
+
+export const programmes = pgTable("programmes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: text("title").notNull(),
+  slug: text("slug").notNull().unique(),
+  description: text("description"),
+  start_date: date("start_date").notNull(),
+  end_date: date("end_date").notNull(),
+  venue: text("venue"),
+  featured_media_id: uuid("featured_media_id").references(() => media.id, { onDelete: "set null" }),
+  status: contentStatus("status").notNull().default("draft"),
+  published_at: timestamp("published_at", { withTimezone: true }),
+  seo_title: text("seo_title"),
+  seo_description: text("seo_description"),
+  og_media_id: uuid("og_media_id").references(() => media.id, { onDelete: "set null" }),
+  created_by: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  updated_by: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deleted_at: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => ({
+  statusIdx: index("programmes_status_published_idx").on(t.status, t.published_at),
+}));
+
+export const programmeSessions = pgTable("programme_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  programme_id: uuid("programme_id").notNull().references(() => programmes.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  date: date("date").notNull(),
+  start_time: text("start_time"),
+  end_time: text("end_time"),
+  speaker: text("speaker"),
+  description: text("description"),
+  sort_order: integer("sort_order").notNull().default(0),
+}, (t) => ({
+  programmeIdx: index("programme_sessions_programme_idx").on(t.programme_id, t.sort_order),
+}));
+
+export const events = pgTable("events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: text("title").notNull(),
+  slug: text("slug").notNull().unique(),
+  description: text("description"),
+  featured_media_id: uuid("featured_media_id").references(() => media.id, { onDelete: "set null" }),
+  start_date: date("start_date").notNull(),
+  end_date: date("end_date"),
+  start_time: text("start_time"),
+  end_time: text("end_time"),
+  venue: text("venue"),
+  address: text("address"),
+  organizer: text("organizer"),
+  contact_phone: text("contact_phone"),
+  is_featured: boolean("is_featured").notNull().default(false),
+  registration_enabled: boolean("registration_enabled").notNull().default(false),
+  registration_url: text("registration_url"),
+  programme_id: uuid("programme_id").references(() => programmes.id, { onDelete: "set null" }),
+  status: contentStatus("status").notNull().default("draft"),
+  published_at: timestamp("published_at", { withTimezone: true }),
+  seo_title: text("seo_title"),
+  seo_description: text("seo_description"),
+  og_media_id: uuid("og_media_id").references(() => media.id, { onDelete: "set null" }),
+  created_by: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  updated_by: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deleted_at: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => ({
+  statusIdx: index("events_status_published_idx").on(t.status, t.published_at),
+  dateIdx: index("events_start_date_idx").on(t.start_date),
+  programmeIdx: index("events_programme_idx").on(t.programme_id),
+}));
+
+export const galleryAlbums = pgTable("gallery_albums", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: text("title").notNull(),
+  slug: text("slug").notNull().unique(),
+  description: text("description"),
+  cover_media_id: uuid("cover_media_id").references(() => media.id, { onDelete: "set null" }),
+  event_id: uuid("event_id").references(() => events.id, { onDelete: "set null" }),
+  album_date: date("album_date"),
+  status: contentStatus("status").notNull().default("draft"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deleted_at: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => ({
+  statusIdx: index("gallery_albums_status_idx").on(t.status),
+}));
+
+export const galleryImages = pgTable("gallery_images", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  album_id: uuid("album_id").notNull().references(() => galleryAlbums.id, { onDelete: "cascade" }),
+  media_id: uuid("media_id").notNull().references(() => media.id, { onDelete: "restrict" }),
+  caption: text("caption"),
+  alt_text: text("alt_text"),
+  sort_order: integer("sort_order").notNull().default(0),
+}, (t) => ({
+  albumIdx: index("gallery_images_album_idx").on(t.album_id, t.sort_order),
+}));
+
+export const sitePages = pgTable("site_pages", {
+  key: text("key").primaryKey(),
+  title: text("title").notNull(),
+  body: text("body").notNull().default(""),
+  updated_by: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const leaders = pgTable("leaders", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  title: text("title").notNull(),
+  bio: text("bio"),
+  photo_media_id: uuid("photo_media_id").references(() => media.id, { onDelete: "set null" }),
+  sort_order: integer("sort_order").notNull().default(0),
+  is_visible: boolean("is_visible").notNull().default(true),
+});
+
+export const branches = pgTable("branches", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  address: text("address").notNull(),
+  phone: text("phone"),
+  email: text("email"),
+  service_times: text("service_times"),
+  map_url: text("map_url"),
+  sort_order: integer("sort_order").notNull().default(0),
+  is_visible: boolean("is_visible").notNull().default(true),
+});
+
+export const contactMessages = pgTable("contact_messages", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  subject: text("subject").notNull(),
+  message: text("message").notNull(),
+  status: contactMessageStatus("status").notNull().default("new"),
+  ip_hash: text("ip_hash"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  deleted_at: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => ({
+  statusIdx: index("contact_messages_status_idx").on(t.status, t.created_at),
+}));

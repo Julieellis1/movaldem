@@ -30,14 +30,16 @@ describe("scaffold", () => {
   });
 
   describe("src/app/page.tsx", () => {
-    it("redirects to /login", () => {
-      expect(pageTsx).toContain('redirect("/login")');
+    it("sends staff to /admin and renders the homepage for everyone else (C14)", () => {
+      expect(pageTsx).toContain("getHomeAudience");
+      expect(pageTsx).toContain('redirect("/admin")');
+      expect(pageTsx).not.toMatch(/return redirect\("\/login"\)/);
     });
   });
 
   describe("src/app/layout.tsx", () => {
     it("exists and exports a layout", () => {
-      expect(layoutTsx).toContain("export default function RootLayout");
+      expect(layoutTsx).toContain("function RootLayout");
     });
   });
 

@@ -1,5 +1,5 @@
 import type { DB } from "@/db/client";
-import { contentCategories } from "@/db/schema";
+import { contentCategories, sitePages } from "@/db/schema";
 
 type Tx = Parameters<Parameters<DB["transaction"]>[0]>[0];
 
@@ -24,8 +24,27 @@ export const CONTENT_CATEGORY_SEED: CategorySeed[] = [
   { type: "bible_study", name: "Christian Living", slug: "christian-living", sort_order: 5, is_active: true },
 ];
 
+type SitePageSeed = typeof sitePages.$inferInsert;
+
+// Default church-info pages (PRD 05 §13; plan Phase 3 Task 8). Placeholder
+// copy is always marked [Placeholder] so the public site never presents seed
+// text as real church content.
+export const SITE_PAGE_SEED: SitePageSeed[] = [
+  { key: "about.history", title: "Our History", body: "[Placeholder] The history of the church will be published here." },
+  { key: "about.vision", title: "Our Vision", body: "[Placeholder] The vision of the church will be published here." },
+  { key: "about.mission", title: "Our Mission", body: "[Placeholder] The mission of the church will be published here." },
+  { key: "about.beliefs", title: "What We Believe", body: "[Placeholder] The beliefs of the church will be published here." },
+];
+
 export async function seedContentTables(tx: Tx) {
   await tx.insert(contentCategories)
     .values(CONTENT_CATEGORY_SEED)
     .onConflictDoNothing({ target: [contentCategories.type, contentCategories.slug] });
+
+  // Default church-info pages (PRD 05 §13; plan Phase 3 Task 8). Idempotent:
+  // onConflictDoNothing keeps staff-edited copy on every re-seed. No demo
+  // events/albums here — real items are created by staff.
+  await tx.insert(sitePages)
+    .values(SITE_PAGE_SEED)
+    .onConflictDoNothing({ target: [sitePages.key] });
 }
