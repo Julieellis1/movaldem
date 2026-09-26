@@ -1,6 +1,17 @@
-import { pgTable, pgEnum, uuid, text, timestamp, boolean, integer, jsonb, primaryKey, index,
+import { pgTable, pgEnum, uuid, text, timestamp, boolean, integer, jsonb, numeric, primaryKey, index,
   uniqueIndex, date } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+
+/** QUIZ-45: question state frozen at attempt start so later bank edits never
+ *  change a past result. */
+export type AttemptQuestionSnapshot = {
+  text: string;
+  options: { id: string; label: string; text: string }[];
+  correctOptionId: string;
+  explanation: string | null;
+  refDisplay: string | null;
+  difficulty: string;
+};
 
 export const userStatus = pgEnum("user_status", ["active", "suspended", "deactivated"]);
 export const leaderboardDisplay = pgEnum("leaderboard_display", ["full", "abbreviated"]);
@@ -579,4 +590,155 @@ export const paymentEvents = pgTable("payment_events", {
   received_at: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   txIdx: index("payment_events_tx_idx").on(t.transaction_id),
+}));
+
+// ---- Phase 5: quiz engine (PRD 09 §7; 07) ----
+// Attempt/answer rows are never hard-deleted; question snapshots make past
+// results immutable (QUIZ-45). Marks/negative marks are decimal.
+
+export const questionDifficulty = pgEnum("question_difficulty", ["easy", "medium", "hard"]);
+export const questionStatus = pgEnum("question_status", ["draft", "active", "archived"]);
+export const quizKind = pgEnum("quiz_kind", ["general", "category", "weekly", "monthly", "annual", "special"]);
+export const questionSelection = pgEnum("question_selection", ["fixed", "random_pool"]);
+export const quizStatus = pgEnum("quiz_status", ["draft", "scheduled", "active", "completed", "archived"]);
+export const attemptStatus = pgEnum("attempt_status", ["in_progress", "submitted", "expired", "cancelled"]);
+export const submissionType = pgEnum("submission_type", ["manual", "auto_timeout", "admin"]);
+
+export const quizCategories = pgTable("quiz_categories", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  parent_id: uuid("parent_id"),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  sort_order: integer("sort_order").notNull().default(0),
+  is_active: boolean("is_active").notNull().default(true),
+}, (t) => ({
+  parentIdx: index("quiz_categories_parent_idx").on(t.parent_id, t.sort_order),
+}));
+
+export const questions = pgTable("questions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  category_id: uuid("category_id").notNull().references(() => quizCategories.id, { onDelete: "restrict" }),
+  text: text("text").notNull(),
+  text_normalized: text("text_normalized").notNull(),
+  difficulty: questionDifficulty("difficulty").notNull().default("medium"),
+  marks: numeric("marks", { precision: 6, scale: 2 }).notNull().default("1"),
+  explanation: text("explanation"),
+  ref_book: text("ref_book"),
+  ref_chapter: integer("ref_chapter"),
+  ref_verse_start: integer("ref_verse_start"),
+  ref_verse_end: integer("ref_verse_end"),
+  ref_display: text("ref_display"),
+  status: questionStatus("status").notNull().default("active"),
+  type: text("type").notNull().default("multiple_choice"),
+  created_by: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deleted_at: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => ({
+  categoryIdx: index("questions_category_idx").on(t.category_id, t.status),
+  normalizedIdx: index("questions_normalized_idx").on(t.category_id, t.text_normalized),
+}));
+
+export const questionOptions = pgTable("question_options", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  question_id: uuid("question_id").notNull().references(() => questions.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  text: text("text").notNull(),
+  is_correct: boolean("is_correct").notNull().default(false),
+  sort_order: integer("sort_order").notNull().default(0),
+}, (t) => ({
+  questionIdx: index("question_options_question_idx").on(t.question_id, t.sort_order),
+}));
+
+export const quizzes = pgTable("quizzes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: text("title").notNull(),
+  slug: text("slug").notNull().unique(),
+  description: text("description"),
+  instructions: text("instructions"),
+  kind: quizKind("kind").notNull().default("general"),
+  category_id: uuid("category_id").references(() => quizCategories.id, { onDelete: "restrict" }),
+  include_subcategories: boolean("include_subcategories").notNull().default(true),
+  question_selection: questionSelection("question_selection").notNull().default("random_pool"),
+  number_of_questions: integer("number_of_questions").notNull(),
+  duration_minutes: integer("duration_minutes").notNull(),
+  pass_mark_percent: integer("pass_mark_percent").notNull().default(50),
+  negative_marks: numeric("negative_marks", { precision: 6, scale: 2 }).notNull().default("0"),
+  randomize_questions: boolean("randomize_questions").notNull().default(true),
+  randomize_options: boolean("randomize_options").notNull().default(true),
+  max_attempts: integer("max_attempts"),
+  review_policy: text("review_policy").notNull().default("after_close"),
+  leaderboard_eligible: boolean("leaderboard_eligible").notNull().default(false),
+  start_at: timestamp("start_at", { withTimezone: true }),
+  end_at: timestamp("end_at", { withTimezone: true }),
+  status: quizStatus("status").notNull().default("draft"),
+  created_by: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deleted_at: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => ({
+  statusIdx: index("quizzes_status_idx").on(t.status, t.start_at),
+  categoryIdx: index("quizzes_category_idx").on(t.category_id),
+}));
+
+export const quizQuestions = pgTable("quiz_questions", {
+  quiz_id: uuid("quiz_id").notNull().references(() => quizzes.id, { onDelete: "cascade" }),
+  question_id: uuid("question_id").notNull().references(() => questions.id, { onDelete: "restrict" }),
+  sort_order: integer("sort_order").notNull().default(0),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.quiz_id, t.question_id] }),
+  orderIdx: index("quiz_questions_order_idx").on(t.quiz_id, t.sort_order),
+}));
+
+export const quizAttempts = pgTable("quiz_attempts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  quiz_id: uuid("quiz_id").notNull().references(() => quizzes.id, { onDelete: "restrict" }),
+  user_id: uuid("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  attempt_number: integer("attempt_number").notNull().default(1),
+  status: attemptStatus("status").notNull().default("in_progress"),
+  submission_type: submissionType("submission_type"),
+  started_at: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  expires_at: timestamp("expires_at", { withTimezone: true }).notNull(),
+  submitted_at: timestamp("submitted_at", { withTimezone: true }),
+  score: numeric("score", { precision: 8, scale: 2 }),
+  max_score: numeric("max_score", { precision: 8, scale: 2 }),
+  percentage: numeric("percentage", { precision: 5, scale: 2 }),
+  correct_count: integer("correct_count"),
+  wrong_count: integer("wrong_count"),
+  unanswered_count: integer("unanswered_count"),
+  time_taken_seconds: integer("time_taken_seconds"),
+  passed: boolean("passed"),
+  cancelled_reason: text("cancelled_reason"),
+  ip_hash: text("ip_hash"),
+  user_agent: text("user_agent"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  quizStatusIdx: index("quiz_attempts_quiz_status_idx").on(t.quiz_id, t.status),
+  userSubmittedIdx: index("quiz_attempts_user_submitted_idx").on(t.user_id, t.submitted_at),
+  submittedIdx: index("quiz_attempts_submitted_idx").on(t.submitted_at),
+}));
+
+export const quizAttemptQuestions = pgTable("quiz_attempt_questions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  attempt_id: uuid("attempt_id").notNull().references(() => quizAttempts.id, { onDelete: "cascade" }),
+  question_id: uuid("question_id").notNull().references(() => questions.id, { onDelete: "restrict" }),
+  position: integer("position").notNull(),
+  option_order: jsonb("option_order").$type<string[]>().notNull(),
+  marks: numeric("marks", { precision: 6, scale: 2 }).notNull(),
+  snapshot: jsonb("snapshot").$type<AttemptQuestionSnapshot>().notNull(),
+}, (t) => ({
+  positionIdx: uniqueIndex("quiz_attempt_questions_position_unique").on(t.attempt_id, t.position),
+}));
+
+export const quizAnswers = pgTable("quiz_answers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  attempt_id: uuid("attempt_id").notNull().references(() => quizAttempts.id, { onDelete: "cascade" }),
+  question_id: uuid("question_id").notNull().references(() => questions.id, { onDelete: "restrict" }),
+  selected_option_id: uuid("selected_option_id").references(() => questionOptions.id, { onDelete: "restrict" }),
+  is_correct: boolean("is_correct"),
+  marks_awarded: numeric("marks_awarded", { precision: 6, scale: 2 }),
+  answered_at: timestamp("answered_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  uniqueIdx: uniqueIndex("quiz_answers_attempt_question_unique").on(t.attempt_id, t.question_id),
 }));

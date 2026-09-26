@@ -43,6 +43,13 @@
       "when": 1790394646446,
       "tag": "0005_massive_blindfold",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790410524778,
+      "tag": "0006_burly_raza",
+      "breakpoints": true
     }
   ]
 }
