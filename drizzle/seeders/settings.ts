@@ -9,7 +9,8 @@ export const SETTINGS_SEED: { key: string; value: unknown; is_secret: boolean }[
   { key: "leaderboard.default_display", value: "abbreviated", is_secret: false },
   { key: "leaderboard.force_abbreviated", value: false, is_secret: false },
   { key: "leaderboard.page_size", value: 50, is_secret: false },
-  { key: "giving.min_amount", value: 10000, is_secret: false },
-  { key: "giving.abandon_after_minutes", value: 60, is_secret: false },
+  // Giving keys live in ./giving.ts (GIVING_SETTINGS_SEED, Phase 4 Item 6) —
+  // do not duplicate them here; the legacy upsert below would overwrite
+  // staff-edited values on re-seed while the giving seeder preserves them.
   { key: "audit.retention_months", value: 24, is_secret: false },
 ];

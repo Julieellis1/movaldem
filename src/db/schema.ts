@@ -509,3 +509,74 @@ export const contactMessages = pgTable("contact_messages", {
 }, (t) => ({
   statusIdx: index("contact_messages_status_idx").on(t.status, t.created_at),
 }));
+
+// ---- Phase 4: giving (PRD 09 §6; 06) ----
+// Money is integer kobo everywhere. Transactions/payment events are never
+// hard-deleted; projects use soft delete.
+
+export const givingType = pgEnum("giving_type", ["tithe", "offering", "general", "project"]);
+export const givingProjectStatus = pgEnum("giving_project_status", ["draft", "active", "completed", "closed"]);
+export const transactionStatus = pgEnum("transaction_status", ["pending", "successful", "failed", "abandoned", "refunded"]);
+export const paymentEventSource = pgEnum("payment_event_source", ["webhook", "verify", "admin"]);
+
+export const givingProjects = pgTable("giving_projects", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: text("title").notNull(),
+  slug: text("slug").notNull().unique(),
+  description: text("description"),
+  featured_media_id: uuid("featured_media_id").references(() => media.id, { onDelete: "set null" }),
+  target_amount: integer("target_amount").notNull(),
+  amount_raised_cached: integer("amount_raised_cached").notNull().default(0),
+  start_date: date("start_date"),
+  end_date: date("end_date"),
+  status: givingProjectStatus("status").notNull().default("draft"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deleted_at: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => ({
+  statusIdx: index("giving_projects_status_idx").on(t.status),
+}));
+
+export const transactions = pgTable("transactions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  reference: text("reference").notNull().unique(),
+  paystack_reference: text("paystack_reference"),
+  user_id: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  message: text("message"),
+  amount: integer("amount").notNull(),
+  currency: text("currency").notNull().default("NGN"),
+  type: givingType("type").notNull(),
+  project_id: uuid("project_id").references(() => givingProjects.id, { onDelete: "restrict" }),
+  status: transactionStatus("status").notNull().default("pending"),
+  payment_method: text("payment_method"),
+  failure_reason: text("failure_reason"),
+  receipt_number: text("receipt_number").unique(),
+  receipt_sent_at: timestamp("receipt_sent_at", { withTimezone: true }),
+  paid_at: timestamp("paid_at", { withTimezone: true }),
+  ip_hash: text("ip_hash"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  statusIdx: index("transactions_status_created_idx").on(t.status, t.created_at),
+  projectIdx: index("transactions_project_idx").on(t.project_id),
+  userIdx: index("transactions_user_idx").on(t.user_id),
+  emailIdx: index("transactions_email_idx").on(t.email),
+}));
+
+export const paymentEvents = pgTable("payment_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  transaction_id: uuid("transaction_id").references(() => transactions.id, { onDelete: "set null" }),
+  source: paymentEventSource("source").notNull(),
+  event_type: text("event_type").notNull(),
+  event_key: text("event_key").notNull().unique(),
+  payload: jsonb("payload").notNull(),
+  signature_valid: boolean("signature_valid").notNull().default(false),
+  processed: boolean("processed").notNull().default(false),
+  error: text("error"),
+  received_at: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  txIdx: index("payment_events_tx_idx").on(t.transaction_id),
+}));

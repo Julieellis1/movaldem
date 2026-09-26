@@ -217,3 +217,23 @@ pass. Both endpoints are triggered by cron-job.org (free tier) with
 `POST /api/cron/process-notifications` every minute,
 `POST /api/cron/publish-scheduled` every 5 minutes.
 Re-introduce native Vercel Crons only if the project moves to Pro.
+
+### C16: Phase 4 scope notes (receipts, exports, Paystack UI)
+
+**Deviations from PRD 06/08, all deliberate:**
+
+1. **RCP-03 PDF attachment SHOULD → link-only.** The `notifications` outbox
+   has no attachment column, so receipt emails carry a signed receipt link
+   (view/print/download PDF) instead of a PDF attachment.
+2. **Financial exports are CSV + XLSX, no PDF.** XLSX+CSV cover the RPT-02
+   machine-readable need; receipt PDFs exist separately. Revisit if auditors
+   demand PDF statements.
+3. **No Paystack settings UI.** The settings page renders every registry field
+   as editable with no read-only/per-role-row mechanism. Paystack keys stay
+   env-only (the PRD-preferred option, 06 D12), so there is nothing safe to
+   display; Super Admin reverify/resend actions live on the transaction page.
+4. **`giving.max_amount` unset = no row.** `settings.value` is NOT NULL jsonb,
+   so "unset" is represented by absence; services fall back to no cap.
+5. **No live Paystack keys exist locally or in CI yet.** All payment tests run
+   against mocked Paystack HTTP. Live test-mode verification (5.4/5.5 e2e)
+   needs `PAYSTACK_SECRET_KEY=sk_test_*` / `PAYSTACK_PUBLIC_KEY=pk_test_*`.
