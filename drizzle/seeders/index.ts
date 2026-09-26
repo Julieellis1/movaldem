@@ -6,6 +6,7 @@ import { PERMISSION_SEED } from "./permissions";
 import { ROLE_KEYS } from "./roles";
 import { ROLE_MATRIX } from "./role-permissions";
 import { SETTINGS_SEED } from "./settings";
+import { seedGivingSettings } from "./giving";
 import { seedContentTables } from "./content";
 
 export async function seed(db: DB) {
@@ -49,6 +50,8 @@ export async function seed(db: DB) {
       .onConflictDoUpdate({
         target: settings.key, set: { value: sql`excluded.value`, is_secret: sql`excluded.is_secret` },
       });
+
+    await seedGivingSettings(tx);
 
     await seedContentTables(tx);
   });

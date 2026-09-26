@@ -4,12 +4,15 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  BarChart3,
   BookOpen,
   CalendarDays,
   CalendarRange,
   FileText,
+  FolderKanban,
   FolderOpen,
   GraduationCap,
+  HandCoins,
   Images,
   KeyRound,
   Layers,
@@ -18,7 +21,6 @@ import {
   Mail,
   MessageCircleQuestionMark,
   Mic,
-  Receipt,
   ScrollText,
   Settings,
   ShieldCheck,
@@ -71,9 +73,16 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    label: "Giving",
+    items: [
+      { href: "/admin/giving/transactions", label: "Transactions", perm: "transactions.read", icon: HandCoins },
+      { href: "/admin/giving/projects", label: "Projects", perm: "projects.read", icon: FolderKanban },
+      { href: "/admin/giving/reports", label: "Reports", perm: "giving_reports.read", icon: BarChart3 },
+    ],
+  },
+  {
     label: "Ops",
     items: [
-      { href: "/admin/transactions", label: "Transactions", perm: "transactions.read", icon: Receipt },
       { href: "/admin/audit-logs", label: "Audit log", perm: "audit_logs.read", icon: ScrollText },
       { href: "/admin/settings", label: "Settings", perm: "settings.read", icon: Settings },
     ],
